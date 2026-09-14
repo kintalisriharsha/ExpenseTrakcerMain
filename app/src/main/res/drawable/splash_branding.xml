@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Optional branding / wordmark shown at the bottom of the splash (API 31+).
+    Rendered at ~200 × 80dp by the system.
+
+    If you prefer not to use this, remove the
+    android:windowSplashScreenBrandingImage line from themes_splash.xml.
+
+    Dimensions: keep the viewportWidth/Height ratio at 5:2
+    so the system doesn't distort it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="80dp"
+    android:viewportWidth="200"
+    android:viewportHeight="80">
+
+    <!--  "Expense" in regular weight  -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.85"
+        android:pathData="
+          M10,44 L10,28 L30,28 L30,32 L15,32 L15,34 L28,34 L28,38 L15,38
+          L15,40 L30,40 L30,44 Z
+
+          M33,44 L33,28 L38,28 L45,38 L45,28 L50,28 L50,44 L45,44 L38,34
+          L38,44 Z
+
+          M53,44 L53,28 L58,28 L58,44 Z
+
+          M61,44 L61,28 L80,28 L80,32 L66,32 L66,34 L78,34 L78,38 L66,38
+          L66,40 L80,40 L80,44 Z
+
+          M83,44 L83,28 L96,28 Q102,28 102,36 Q102,41 98,43
+          L103,44 L97,44 L93,42 L88,42 L88,44 Z
+          M88,32 L88,38 L95,38 Q97,38 97,35 Q97,32 95,32 Z" />
+
+    <!--  Accent dot between words  -->
+    <path
+        android:fillColor="#63D999"
+        android:pathData="M110,36 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+
+    <!--  "Track" in green semi-bold  -->
+    <path
+        android:fillColor="#63D999"
+        android:pathData="
+          M117,44 L117,32 L111,32 L111,28 L128,28 L128,32 L122,32 L122,44 Z
+
+          M129,44 L129,28 L148,28 L148,32 L134,32 L134,34 L146,34 L146,38
+          L134,38 L134,40 L148,40 L148,44 Z
+
+          M150,44 L150,28 L155,28 L155,34 L162,28 L168,28 L160,36
+          L168,44 L162,44 L155,38 L155,44 Z
+
+          M169,44 L169,28 L174,28 L174,44 Z
+
+          M176,36 Q176,28 185,28 Q190,28 192,31 L188,34 Q187,32 185,32
+          Q181,32 181,36 Q181,40 185,40 Q187,40 188,38 L192,41
+          Q190,44 185,44 Q176,44 176,36 Z" />
+
+</vector>

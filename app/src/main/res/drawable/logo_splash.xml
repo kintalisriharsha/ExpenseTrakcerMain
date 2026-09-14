@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- EFF6FF circle background -->
+    <item
+        android:width="200dp"
+        android:height="200dp"
+        android:gravity="center">
+        <shape android:shape="oval">
+            <solid android:color="#EFF6FF" />
+        </shape>
+    </item>
+
+    <!-- Logo with more breathing room inside the circle -->
+    <item
+        android:top="30dp"
+        android:bottom="30dp"
+        android:left="30dp"
+        android:right="30dp"
+        android:drawable="@drawable/logo" />
+
+</layer-list>

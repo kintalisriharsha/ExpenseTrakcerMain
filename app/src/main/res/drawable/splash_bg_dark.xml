@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Splash background for dark mode.
+    Place in res/drawable-night/ (or reference via values-night/themes.xml).
+    The deep near-black base with a centered radial glow gives depth
+    without relying on runtime canvas drawing.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Base background -->
+    <item>
+        <color android:color="#0D0F14" />
+    </item>
+
+    <!-- Soft radial glow centered slightly above middle -->
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="#0F1A13" />
+            <size android:width="600dp" android:height="600dp" />
+        </shape>
+    </item>
+
+    <!-- Subtle vignette ring to frame the icon -->
+    <item
+        android:gravity="center"
+        android:width="260dp"
+        android:height="260dp">
+        <shape android:shape="oval">
+            <stroke
+                android:width="60dp"
+                android:color="#0A1510" />
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+
+</layer-list>

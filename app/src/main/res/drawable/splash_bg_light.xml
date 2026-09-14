@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Splash background for light / default mode.
+    Clean off-white with a very subtle large arc in the corner
+    for a premium, editorial feel.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Base: off-white, not pure white – avoids the cheap look -->
+    <item>
+        <color android:color="#F4F8F5" />
+    </item>
+
+    <!-- Top-left arc accent -->
+    <item
+        android:gravity="top|start"
+        android:width="320dp"
+        android:height="320dp">
+        <shape android:shape="oval">
+            <stroke
+                android:width="48dp"
+                android:color="#E8F5EE" />
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+
+    <!-- Bottom-right arc accent (smaller) -->
+    <item
+        android:gravity="bottom|end"
+        android:width="200dp"
+        android:height="200dp">
+        <shape android:shape="oval">
+            <stroke
+                android:width="32dp"
+                android:color="#EDF7F2" />
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+
+</layer-list>

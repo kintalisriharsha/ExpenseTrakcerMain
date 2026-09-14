@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Expenzo</string>
+    <string name="appwidget_text">EXAMPLE</string>
+    <string name="add_widget">Add widget</string>
+    <string name="app_widget_description">This is an app widget description</string>
+    <string name="todo_widget_description">See your pending todos at a glance, right from the home screen.</string>
+    <string name="expense_widget_description">Track today\'s spend against your daily, weekly, and monthly budgets.</string>
+</resources>

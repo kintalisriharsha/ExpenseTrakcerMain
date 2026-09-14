@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.ExpenseTracker" parent="android:Theme.Material.Light.NoActionBar"/>
+
+    <style name="Theme.ExpenseTracker.AppWidgetContainerParent" parent="@android:style/Theme.DeviceDefault">
+        <item name="appWidgetRadius">16dp</item>
+        <item name="appWidgetInnerRadius">8dp</item>
+    </style>
+
+    <style name="Theme.ExpenseTracker.AppWidgetContainer" parent="Theme.ExpenseTracker.AppWidgetContainerParent">
+        <item name="appWidgetPadding">16dp</item>
+    </style>
+
+    <style name="Theme.ExpenseTracker.Starting" parent="Theme.SplashScreen">
+        <!-- Navy blue full-screen background -->
+        <item name="windowSplashScreenBackground">#0D1B3E</item>
+
+        <!-- logo_splash.xml already contains the EFF6FF circle + your logo -->
+        <item name="windowSplashScreenAnimatedIcon">@drawable/logo_splash</item>
+
+        <!-- After splash, hand off to your real app theme -->
+        <item name="postSplashScreenTheme">@style/Theme.ExpenseTracker</item>
+    </style>
+
+</resources>
