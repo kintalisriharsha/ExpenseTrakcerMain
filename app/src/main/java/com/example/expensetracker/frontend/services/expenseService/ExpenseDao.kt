@@ -18,7 +18,7 @@ interface ExpenseDao {
     fun getAllFlow(): Flow<List<ExpenseEntity>>
 
     @Query("Select * From expenses Where id = :id")
-    fun getExpenseById(id: Long?): Flow<ExpenseEntity>
+    fun getExpenseById(id: Long?): Flow<ExpenseEntity?>
 
     @Query("""
     SELECT * FROM expenses

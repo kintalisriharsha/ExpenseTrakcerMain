@@ -13,7 +13,7 @@ class ExpenseRepository(private val dao: ExpenseDao) {
         return dao.getAllFlow()
     }
 
-    fun getExpenseById(id: Long): Flow<ExpenseEntity> {
+    fun getExpenseById(id: Long): Flow<ExpenseEntity?> {
         return dao.getExpenseById(id)
     }
 

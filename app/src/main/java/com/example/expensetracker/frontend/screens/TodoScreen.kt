@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalLocale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.navigation.NavController
 import com.example.expensetracker.frontend.components.BottomNavBar
 import com.example.expensetracker.frontend.components.CustomToast
@@ -187,8 +188,13 @@ fun TodoPlanner(
                 item {
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "Never Forgot Anything", fontSize = 35.sp, fontWeight = FontWeight.Black,
-                        color = textPrimary, letterSpacing = (-1).sp
+                        "Never Forgot Anything",
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.Black,
+                        color = textPrimary,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Visible // or Ellipsis/Clip
                     )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
