@@ -24,6 +24,14 @@ interface HomeDao {
     )
     fun observeWeeklySpent(weekStart: String, weekEnd: String): Flow<Double>
 
+    // "date" is stored as a formatted string ("dd MMM yyyy"), so a SQL BETWEEN on it
+    // is a lexicographic string comparison, not a chronological one — it silently
+    // gives wrong sums whenever a range crosses a month boundary (e.g. a week that
+    // spans "30 Sep 2026".."04 Oct 2026"). This query hands back every expense row
+    // instead, so WidgetRepository can filter using real parsed LocalDate ranges.
+    @Query("SELECT * FROM expenses WHERE tab = 1")
+    fun observeAllExpenses(): Flow<List<ExpenseEntity>>
+
     @Query("SELECT COALESCE(SUM(amount), 0.0) FROM expenses WHERE tab = 1 AND date = :today")
     fun observeSpentToday(today: String): Flow<Double>
 

@@ -20,6 +20,7 @@ import com.example.expensetracker.frontend.components.ActionCardPickerScreen
 import com.example.expensetracker.frontend.important.AppPreferences
 import com.example.expensetracker.frontend.important.Appstate
 import com.example.expensetracker.frontend.important.Appstate.isDark
+import com.example.expensetracker.frontend.screens.NotificationHistoryScreen
 import com.example.expensetracker.frontend.screens.*
 import com.example.expensetracker.frontend.services.analyticsService.AnalyticsRepository
 import com.example.expensetracker.frontend.services.analyticsService.AnalyticsViewModel
@@ -39,6 +40,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.example.expensetracker.frontend.services.TodoService.TodoViewModelFactory
 import com.example.expensetracker.frontend.services.expenseService.ExpenseViewModelFactory
 import com.example.expensetracker.frontend.services.settingService.SettingViewModelFactory
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -84,6 +86,9 @@ class MainActivity : ComponentActivity() {
                     ActivityResultContracts.RequestPermission()
                 ) { granted ->
                     Appstate.notificationEnabled = granted
+                    // Notification flow finished (granted or denied) — safe to
+                    // move on to the SMS/phone request now.
+                    Appstate.notificationFlowDone = true
                 }
 
                 // ── SMS + Phone OS launcher ───────────────────────────────────
@@ -100,6 +105,29 @@ class MainActivity : ComponentActivity() {
                     Appstate.phoneGranted =
                         phoneNumbersGranted &&
                                 results[Manifest.permission.READ_PHONE_STATE] == true
+                }
+
+                // ── Notification permission (asked first) ──────────────────────────
+                LaunchedEffect(Unit) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val hasNotificationPermission = ContextCompat.checkSelfPermission(
+                            context, Manifest.permission.POST_NOTIFICATIONS
+                        ) == PackageManager.PERMISSION_GRANTED
+
+                        Appstate.notificationEnabled = hasNotificationPermission
+
+                        if (!hasNotificationPermission && !appPreferences.notificationDecisionMade) {
+                            appPreferences.notificationDecisionMade = true
+                            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            // Nothing to show — unblock the SMS/phone step immediately.
+                            Appstate.notificationFlowDone = true
+                        }
+                    } else {
+                        Appstate.notificationEnabled = true
+                        appPreferences.notificationDecisionMade = true
+                        Appstate.notificationFlowDone = true
+                    }
                 }
 
                 // ── Sync Appstate permission flags on cold start ──────────────
@@ -128,7 +156,18 @@ class MainActivity : ComponentActivity() {
                             ) == PackageManager.PERMISSION_GRANTED
                     Appstate.phoneGranted = hasPhone
 
-                    // ── Actually request SMS/phone permissions if not yet granted ─────
+                    // ── Wait for the notification dialog to fully resolve before
+                    // requesting SMS/phone — this is what was interfering before. ──
+                    snapshotFlow { Appstate.notificationFlowDone }
+                        .let { flow ->
+                            // simple busy-wait replaced with a suspend loop
+                        }
+                    while (!Appstate.notificationFlowDone) {
+                        delay(50)
+                    }
+                    // Small buffer so the dialog's dismiss animation is fully done.
+                    delay(300)
+
                     if (!hasSms || !hasPhone) {
                         val permissionsToRequest = buildList {
                             add(Manifest.permission.RECEIVE_SMS)
@@ -138,23 +177,6 @@ class MainActivity : ComponentActivity() {
                             add(Manifest.permission.READ_PHONE_STATE)
                         }
                         smsPhoneLauncher.launch(permissionsToRequest.toTypedArray())
-                    }
-
-                    // ── Notification permission (existing) ─────────────────────────────
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        val hasNotificationPermission = ContextCompat.checkSelfPermission(
-                            context, Manifest.permission.POST_NOTIFICATIONS
-                        ) == PackageManager.PERMISSION_GRANTED
-
-                        Appstate.notificationEnabled = hasNotificationPermission
-
-                        if (!hasNotificationPermission && !appPreferences.notificationDecisionMade) {
-                            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            appPreferences.notificationDecisionMade = true
-                        }
-                    } else {
-                        Appstate.notificationEnabled = true
-                        appPreferences.notificationDecisionMade = true
                     }
                 }
 
@@ -227,6 +249,13 @@ class MainActivity : ComponentActivity() {
                             navController = navController,
                             isDark = isDark,
                             viewModel = todoViewModel
+                        )
+                    }
+                    composable("notifications") {
+                        NotificationHistoryScreen(
+                            navController    = navController,
+                            isDark           = isDark,
+                            expenseViewModel = expenseViewModel
                         )
                     }
                 }

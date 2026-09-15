@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 object Appstate {
     var isPickerOpen by mutableStateOf(false)
     var notificationEnabled by mutableStateOf(false)
+    var notificationFlowDone by mutableStateOf(false)
     var isDark by mutableStateOf(false)
     var contactsGranted by mutableStateOf(false) // ← add this
 

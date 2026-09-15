@@ -485,7 +485,7 @@ fun HeaderSection(
             tonalElevation  = 0.dp
         ) {
             Box(contentAlignment = Alignment.TopEnd) {
-                IconButton(onClick = {}) {
+                IconButton(onClick = { navController.navigate("notifications") }) {
                     Icon(
                         imageVector        = Icons.Filled.Notifications,
                         contentDescription = "Notifications",
@@ -994,12 +994,22 @@ private fun ExpenseCard(
                     )
                 }
                 Column {
-                    Text(
-                        text       = expense.category,
-                        fontSize   = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        color      = textPrimary
-                    )
+                    Row() {
+                        Text(
+                            text       = expense.category,
+                            fontSize   = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color      = textPrimary
+                        )
+                        Spacer(Modifier.padding(horizontal = 40.dp))
+                        Text(
+                            text = "-₹${"%.2f".format(expense.amount).take(3)}..",
+                            fontSize   = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color      = Color(0xFFDC2626)
+                        )
+                    }
+
                     Text(
                         text = "${expense.notes.orEmpty().ifBlank { "Notes Not Available" }.take(15)}... • ${expense.time}",
                         fontSize   = UiScale.small,
@@ -1009,12 +1019,7 @@ private fun ExpenseCard(
                 }
             }
 
-            Text(
-                text = "-₹${"%.2f".format(expense.amount).take(3)}...",
-                fontSize   = 17.sp,
-                fontWeight = FontWeight.Bold,
-                color      = Color(0xFFDC2626)
-            )
+
         }
     }
 }

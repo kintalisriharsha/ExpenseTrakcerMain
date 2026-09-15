@@ -1,6 +1,5 @@
 package com.example.expensetracker.frontend.widgets
 
-import android.R.attr.maxLines
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap

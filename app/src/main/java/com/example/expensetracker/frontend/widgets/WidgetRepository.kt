@@ -40,8 +40,15 @@ class WidgetRepository(context: Context) {
     @RequiresApi(Build.VERSION_CODES.O)
     suspend fun getExpenseSnapshot(): ExpenseWidgetSnapshot {
         val today     = LocalDate.now()
+        // Dates are always written by SmsParser / manual entry using this exact
+        // fixed-locale format ("dd MMM yyyy", Locale.ENGLISH) — matching that here
+        // (rather than Locale.getDefault()) is what keeps parsing reliable.
         val formatter = DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH)
 
+        // Bounds recomputed fresh from LocalDate.now() on every snapshot — this is
+        // what makes each bucket clear itself automatically the moment its period
+        // actually rolls over (new day → daily resets, new week → weekly resets,
+        // new month → monthly resets), with no persisted counter to reset by hand.
         val weekFields = WeekFields.of(Locale.getDefault())
         val weekStart  = today.with(weekFields.dayOfWeek(), 1)
         val weekEnd    = weekStart.plusDays(6)
@@ -51,17 +58,28 @@ class WidgetRepository(context: Context) {
 
         val settings = dao.observeSettings(today.year, today.monthValue).first()
 
-        val weeklySpent = dao.observeWeeklySpent(
-            weekStart.format(formatter),
-            weekEnd.format(formatter)
-        ).first()
+        // Sum weekly/monthly in-memory over *real* parsed LocalDates rather than
+        // via SQL BETWEEN on the raw "dd MMM yyyy" strings. A string BETWEEN is a
+        // lexicographic comparison, so it silently mis-sums (or drops to 0) any
+        // time the week/month range crosses a month boundary — e.g. a week
+        // spanning "30 Sep 2026".."04 Oct 2026" would compare "30 Sep 2026" as
+        // *greater* than "04 Oct 2026" alphabetically and get excluded. Parsing
+        // each row's date for a real chronological comparison fixes that, so the
+        // weekly/monthly totals stay accurate (and non-zero) for the whole period.
+        val allExpenses = dao.observeAllExpenses().first()
 
-        // Reusing observeWeeklySpent here since it's just a date-range sum under
-        // the hood — swap for a dedicated observeMonthlySpent(...) if you have one.
-        val monthlySpent = dao.observeWeeklySpent(
-            monthStart.format(formatter),
-            monthEnd.format(formatter)
-        ).first()
+        fun parseRowDate(dateStr: String): LocalDate? =
+            try { LocalDate.parse(dateStr, formatter) } catch (e: Exception) { null }
+
+        val weeklySpent = allExpenses.sumOf { row ->
+            val d = parseRowDate(row.date)
+            if (d != null && !d.isBefore(weekStart) && !d.isAfter(weekEnd)) row.amount else 0.0
+        }
+
+        val monthlySpent = allExpenses.sumOf { row ->
+            val d = parseRowDate(row.date)
+            if (d != null && !d.isBefore(monthStart) && !d.isAfter(monthEnd)) row.amount else 0.0
+        }
 
         val spentToday = dao.observeSpentToday(today.format(formatter)).first()
 
@@ -69,8 +87,7 @@ class WidgetRepository(context: Context) {
         // returns the single most recent expense row (or null if none exist),
         // with `category`/`title` and `amount` fields.
 
-        val storedDateFormatter = DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH)
-        val todayFormatted     = today.format(storedDateFormatter)
+        val todayFormatted = today.format(formatter)
         val latest = dao.observeRecentExpenses(todayFormatted).first().firstOrNull()
 
         return ExpenseWidgetSnapshot(

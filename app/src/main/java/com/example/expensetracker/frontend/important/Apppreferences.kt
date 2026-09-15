@@ -22,6 +22,8 @@ class AppPreferences(context: Context) {
         const  val MAX_SKIPS                       = 3
         private const val KEY_NOTIF_DECISION_MADE  = "notif_decision_made"
         private const val KEY_NOTIF_SKIP_COUNT     = "notif_skip_count"
+        private const val KEY_BG_RELIABILITY_SHOWN = "bg_reliability_prompt_shown"
+        private const val KEY_AUTO_REVOKE_SHOWN    = "auto_revoke_prompt_shown"
     }
 
     private val prefs: SharedPreferences =
@@ -44,26 +46,13 @@ class AppPreferences(context: Context) {
         get()      = prefs.getBoolean(KEY_NOTIF_DECISION_MADE, false)
         set(value) = prefs.edit().putBoolean(KEY_NOTIF_DECISION_MADE, value).apply()
 
-    /** Number of times the user tapped "Not Now". */
-    var notificationSkipCount: Int
-        get()      = prefs.getInt(KEY_NOTIF_SKIP_COUNT, 0)
-        set(value) = prefs.edit().putInt(KEY_NOTIF_SKIP_COUNT, value).apply()
+    /** True once the user has seen the battery-optimization/auto-revoke prompt. */
+    var backgroundReliabilityPromptShown: Boolean
+        get()      = prefs.getBoolean(KEY_BG_RELIABILITY_SHOWN, false)
+        set(value) = prefs.edit().putBoolean(KEY_BG_RELIABILITY_SHOWN, value).apply()
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    /** Call on "Not Now". Returns true when the skip limit is reached. */
-    fun recordSkip(): Boolean {
-        val newCount = notificationSkipCount + 1
-        notificationSkipCount = newCount
-        return if (newCount >= MAX_SKIPS) {
-            notificationDecisionMade = true
-            true
-        } else false
-    }
-
-    /** Call when OS grants the permission. */
-    fun recordGranted() {
-        notificationEnabled      = true
-        notificationDecisionMade = true
-    }
+    /** True once the user has seen the "Pause app activity if unused" settings screen. */
+    var autoRevokePromptShown: Boolean
+        get()      = prefs.getBoolean(KEY_AUTO_REVOKE_SHOWN, false)
+        set(value) = prefs.edit().putBoolean(KEY_AUTO_REVOKE_SHOWN, value).apply()
 }

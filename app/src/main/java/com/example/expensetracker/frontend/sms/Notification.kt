@@ -25,8 +25,8 @@ fun createNotification(
     amount: Double,
     category: String
 ): NotificationCompat.Builder {
-    val notifTitle = "Transaction added: $title"
-    val notifBody  = "$category and \u00B7 \u20B9${formatAmount(amount)} saved to your records"
+    val notifTitle = context.getString(R.string.app_name)
+    val notifBody  = "Added $title \u2014 $category \u00B7 \u20B9${formatAmount(amount)} to your records"
     val intent = Intent(context, MainActivity::class.java).apply {
         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
     }
@@ -36,6 +36,7 @@ fun createNotification(
     return NotificationCompat.Builder(context, RESULT_CHANNEL_ID)
         .setContentTitle(notifTitle)
         .setContentText(notifBody)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(notifBody))
         .setSmallIcon(R.drawable.logo)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .setContentIntent(pendingIntent)
