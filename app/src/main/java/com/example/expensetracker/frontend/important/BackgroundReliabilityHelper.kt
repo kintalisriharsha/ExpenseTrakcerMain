@@ -1,27 +1,32 @@
 package com.example.expensetracker.frontend.important
 
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 
 /**
- * Two OEM/OS background-restriction prompts that came up while debugging why SMS
- * detection + widget refresh worked on an emulator but not on a real device:
+ * Battery optimization exemption — a real, requestable Android permission/intent
+ * that came up while debugging why SMS detection + widget refresh worked on an
+ * emulator but not on a real device. Shows a one-tap system dialog letting the
+ * user whitelist the app from OEM battery managers that would otherwise kill
+ * background work SMS detection depends on.
  *
- *  1. Battery optimization exemption — a real, requestable Android permission/intent.
- *     Shows a one-tap system dialog letting the user whitelist the app.
+ * MainActivity requests this once automatically on cold start, sequenced AFTER
+ * the notification and SMS/phone permission dialogs fully resolve (not launched
+ * from a separate, concurrently-running coroutine) — that race is what used to
+ * let this cancel the notification dialog outright. Settings can also offer a
+ * manual re-ask button using [requestIgnoreBatteryOptimizations] for anyone who
+ * declined the first time.
  *
- *  2. "Pause app activity if unused" / permission auto-revoke — Android does NOT let
- *     any third-party app silently turn this off for itself (by design, for privacy).
- *     The only thing an app can do is deep-link the user straight to that toggle
- *     screen so they don't have to hunt for it manually in Settings.
- *
- * Neither of these can be done invisibly — both require the user to actually see a
- * system screen and make the choice themselves.
+ * The app hibernation / permission auto-revoke prompt ("Pause app activity if
+ * unused" etc.) that used to live here has been dropped. Android doesn't let an
+ * app silently turn that off for itself — the only thing possible was deep-linking
+ * to a settings screen that had the same forced-navigation problem as the battery
+ * prompt did, and it only matters after months of total inactivity, so it wasn't
+ * worth keeping. See https://developer.android.com/topic/performance/app-hibernation
+ * if this ever needs to come back.
  */
 object BackgroundReliabilityHelper {
 
@@ -32,46 +37,30 @@ object BackgroundReliabilityHelper {
     }
 
     /**
-     * Fires the system "Allow this app to ignore battery optimizations?" dialog.
-     * No-op if the app is already exempt, or on devices too old to support it.
+     * Builds the "Allow this app to ignore battery optimizations?" intent for this
+     * app's package. Callers that need to know when the user has finished with the
+     * resulting screen (e.g. to sequence something after it) should launch this
+     * via an ActivityResultLauncher (StartActivityForResult) rather than
+     * context.startActivity.
+     */
+    fun createRequestIgnoreBatteryOptimizationsIntent(context: Context): Intent =
+        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = android.net.Uri.parse("package:${context.packageName}")
+        }
+
+    /**
+     * Fire-and-forget convenience for a simple Settings-screen button: builds and
+     * launches the intent directly. No-op if the app is already exempt, or on
+     * devices too old to support it.
      */
     fun requestIgnoreBatteryOptimizations(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
         if (isIgnoringBatteryOptimizations(context)) return
 
-        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-            data = Uri.parse("package:${context.packageName}")
-        }
         try {
-            context.startActivity(intent)
-        } catch (e: ActivityNotFoundException) {
+            context.startActivity(createRequestIgnoreBatteryOptimizationsIntent(context))
+        } catch (e: android.content.ActivityNotFoundException) {
             // A handful of OEM builds strip this screen out — nothing more we can do.
-        }
-    }
-
-    /**
-     * Opens the per-app "Pause app activity if unused" / auto-revoke-permissions
-     * screen so the user can toggle it off themselves. Falls back to the generic
-     * App Info screen on very old devices that predate this specific screen.
-     */
-    fun openAutoRevokePermissionsSettings(context: Context) {
-        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Intent(Intent.ACTION_AUTO_REVOKE_PERMISSIONS).apply {
-                data = Uri.parse("package:${context.packageName}")
-            }
-        } else {
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:${context.packageName}")
-            }
-        }
-        try {
-            context.startActivity(intent)
-        } catch (e: ActivityNotFoundException) {
-            context.startActivity(
-                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                    data = Uri.parse("package:${context.packageName}")
-                }
-            )
         }
     }
 }
