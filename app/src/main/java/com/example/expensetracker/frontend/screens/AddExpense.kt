@@ -126,6 +126,53 @@ val categories = listOf(
 private const val MAX_AMOUNT = 200000.0
 private val amountRegex = Regex("^\\d*\\.?\\d{0,2}$")
 
+// Maps merchant/description keywords to the fixed 8-category UI grid above, so
+// typing "Swiggy" or "Uber" into Notes can auto-suggest the right category
+// instead of requiring a manual tap every time.
+private val uiCategoryKeywords: LinkedHashMap<String, List<String>> = linkedMapOf(
+    "Food" to listOf(
+        "swiggy", "zomato", "restaurant", "cafe", "food", "dominos", "pizza",
+        "starbucks", "mcdonald", "kfc", "eatsure", "grocery", "groceries",
+        "supermarket", "zepto", "blinkit", "instamart", "bigbasket", "dmart"
+    ),
+    "Transport" to listOf(
+        "uber", "ola", "rapido", "irctc", "makemytrip", "goibibo", "indigo",
+        "vistara", "airindia", "redbus", "yatra", "petrol", "diesel", "fuel",
+        "metro", "bus fare", "cab", "taxi", "parking"
+    ),
+    "Shopping" to listOf(
+        "amazon", "flipkart", "myntra", "ajio", "meesho", "nykaa", "reliance",
+        "shop", "mall", "store"
+    ),
+    "Leisure" to listOf(
+        "netflix", "spotify", "primevideo", "hotstar", "bookmyshow", "sonyliv",
+        "movie", "cinema", "game", "gaming", "youtube premium"
+    ),
+    "Housing" to listOf(
+        "rent", "nobroker", "housing.com", "electricity", "water bill",
+        "maintenance", "broadband", "wifi", "gas", "dth"
+    ),
+    "Health" to listOf(
+        "pharmacy", "apollo", "hospital", "clinic", "medplus", "practo",
+        "1mg", "netmeds", "doctor", "medicine", "medical"
+    ),
+    "Education" to listOf(
+        "school", "college", "tuition", "course", "udemy", "coursera",
+        "books", "fees", "exam"
+    ),
+)
+
+/** Best-guess UI category for whatever the user has typed so far (merchant name,
+ *  description, etc.), or null if nothing matches — leaves the picker untouched. */
+fun suggestUiCategory(text: String): String? {
+    if (text.isBlank()) return null
+    val lower = text.lowercase()
+    for ((category, keywords) in uiCategoryKeywords) {
+        if (keywords.any { lower.contains(it) }) return category
+    }
+    return null
+}
+
 @RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -145,6 +192,10 @@ fun AddExpense(
     var previousTerms     by remember { mutableStateOf(listOf<String>()) } // completed terms, joined with "+"
     var showLimitError    by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf("") }
+    // True while the current selectedCategory came from typing Notes rather than
+    // a manual tap — lets auto-suggestion keep updating as they type, but a
+    // deliberate tap on a category chip always overrides and "sticks" afterward.
+    var categoryAutoPicked by remember { mutableStateOf(false) }
     var notes            by remember { mutableStateOf("") }
     var selectedDate by remember {
         mutableStateOf(SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date()))
@@ -247,6 +298,19 @@ fun AddExpense(
         uiState.errorMessage?.let {
             toast = ToastMessage(it, ToastType.ERROR)
             expenseViewModel.clearError()
+        }
+    }
+
+    // Auto-suggest a category from whatever's typed in Notes (merchant/description),
+    // as long as nothing was manually picked (or the current pick was itself an
+    // earlier auto-suggestion) — a manual tap always takes priority afterward.
+    LaunchedEffect(notes) {
+        if (selectedCategory.isBlank() || categoryAutoPicked) {
+            val suggestion = suggestUiCategory(notes)
+            if (suggestion != null) {
+                selectedCategory = suggestion
+                categoryAutoPicked = true
+            }
         }
     }
 
@@ -367,7 +431,7 @@ fun AddExpense(
                     CategoryGrid(
                         categories         = categories,
                         selectedCategory   = selectedCategory,
-                        onCategorySelected = { selectedCategory = it },
+                        onCategorySelected = { selectedCategory = it; categoryAutoPicked = false },
                         textPrimary        = textPrimary
                     )
 

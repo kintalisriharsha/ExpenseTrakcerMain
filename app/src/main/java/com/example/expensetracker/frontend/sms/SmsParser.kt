@@ -24,25 +24,21 @@ object SmsParser {
         "credited", "credit", "received", "deposited", "refund"
     )
 
-    // Matched against BOTH the sender ID and the message body — catches bank
-    // names spelled out in plain text, regardless of the DLT sender header format
-    private val bankKeywords = listOf(
-        "HDFC", "ICICI", "SBI", "AXIS",
-        "KOTAK", "PNB", "BANK OF INDIA", "CANARA",
-        "PAYTM", "YES BANK", "INDIAN BANK"
-    )
-
     private val titlePatterns = listOf(
         Regex("""\bat\s+([A-Za-z0-9&.\-_' ]{2,30}?)(?:\s+on\b|\s+ref\b|[.,]|\s*$)""", RegexOption.IGNORE_CASE),
         Regex("""\bto\s+(?:VPA\s+)?([A-Za-z0-9@.\-_' ]{2,30}?)(?:\s+on\b|\s+ref\b|[.,]|\s*$)""", RegexOption.IGNORE_CASE),
         Regex("""\bfrom\s+([A-Za-z0-9@.\-_' ]{2,30}?)(?:\s+on\b|\s+ref\b|[.,]|\s*$)""", RegexOption.IGNORE_CASE),
         Regex("""Info:\s*(?:UPI|POS|IMPS|NEFT)?/?[\d]*?/?([A-Za-z0-9&.\-_' ]{2,30})(?:\.|,|\s*$)""", RegexOption.IGNORE_CASE),
+        // Additional real-world formats banks actually send
+        Regex("""\btrf\s+to\s+([A-Za-z0-9@.\-_' ]{2,30}?)(?:\s+on\b|\s+ref\b|[.,]|\s*$)""", RegexOption.IGNORE_CASE),
+        Regex("""\bcredited\s+(?:to\s+your\s+a/?c\s+)?(?:by|from)\s+([A-Za-z0-9@.\-_' ]{2,30}?)(?:\s+on\b|\s+ref\b|[.,]|\s*$)""", RegexOption.IGNORE_CASE),
+        Regex("""\btowards\s+([A-Za-z0-9&.\-_' ]{2,30}?)(?:\s+on\b|\s+ref\b|[.,]|\s*$)""", RegexOption.IGNORE_CASE),
     )
 
-    private val categoryKeywords: LinkedHashMap<String, List<String>> = linkedMapOf(
+    private val categoryKeywords: Map<String, List<String>> = linkedMapOf(
         "Food & Dining" to listOf(
             "swiggy", "zomato", "restaurant", "cafe", "food", "dominos",
-            "pizza", "starbucks", "mcdonald", "kfc", "eatsure"
+            "pizza", "starbucks", "mcdonald", "kfc", "eatsure", "smartq"
         ),
         "Groceries" to listOf(
             "grocery", "groceries", "supermarket", "kirana", "zepto",
@@ -83,32 +79,51 @@ object SmsParser {
         "ATM Withdrawal" to listOf(
             "atm"
         ),
+    ).mapValues { (_, keywords) -> keywords.map { it.lowercase() } }
+    // ^ normalized once here so it never matters whether an entry above was typed
+    //   "SmartQ", "SMARTQ", or "smartq" — every keyword is compared in lowercase.
+
+    // Single source of truth for recognizing AND naming a bank/payment service.
+    // Patterns match the real, condensed forms banks use in DLT sender headers
+    // and in the SMS body itself (e.g. "YESBNK", "BOIIND", "INDBNK", "CANBNK"),
+    // not just the spelled-out English name — that mismatch was why valid
+    // messages were being rejected before reaching the database.
+    private val bankPatterns: List<Pair<Regex, String>> = listOf(
+        Regex("ICICI", RegexOption.IGNORE_CASE)                       to "ICICI Bank",
+        Regex("HDFC", RegexOption.IGNORE_CASE)                        to "HDFC Bank",
+        Regex("""\bSBI\b|SBIINB|SBIPSG|SBICRD""", RegexOption.IGNORE_CASE) to "State Bank of India",
+        Regex("AXIS", RegexOption.IGNORE_CASE)                        to "Axis Bank",
+        Regex("KOTAK", RegexOption.IGNORE_CASE)                       to "Kotak Bank",
+        Regex("""\bPNB\b|PNBSMS""", RegexOption.IGNORE_CASE)          to "Punjab National Bank",
+        Regex("""BANK OF INDIA|\bBOI\b|BOIIND""", RegexOption.IGNORE_CASE)  to "Bank of India",
+        Regex("""CANARA|\bCANBNK\b""", RegexOption.IGNORE_CASE)       to "Canara Bank",
+        Regex("PAYTM", RegexOption.IGNORE_CASE)                       to "Paytm",
+        Regex("""YES\s?BANK|YESBNK""", RegexOption.IGNORE_CASE)       to "Yes Bank",
+        Regex("""INDIAN\s?BANK|INDBNK""", RegexOption.IGNORE_CASE)    to "Indian Bank",
+        Regex("""UNION\s?BANK|UBIN|UNIONB""", RegexOption.IGNORE_CASE) to "Union Bank of India",
+        Regex("""BANK OF BARODA|\bBOB\b|BOBIBN""", RegexOption.IGNORE_CASE) to "Bank of Baroda",
+        Regex("""IDBI""", RegexOption.IGNORE_CASE)                    to "IDBI Bank",
+        Regex("""IDFC""", RegexOption.IGNORE_CASE)                    to "IDFC First Bank",
+        Regex("""INDUSIND|INDUS""", RegexOption.IGNORE_CASE)          to "IndusInd Bank",
+        Regex("""FEDERAL\s?BANK|FEDBNK""", RegexOption.IGNORE_CASE)   to "Federal Bank",
+        Regex("""PHONEPE""", RegexOption.IGNORE_CASE)                 to "PhonePe",
+        Regex("""GPAY|GOOGLEPAY""", RegexOption.IGNORE_CASE)          to "Google Pay",
+        Regex("""AMAZONPAY""", RegexOption.IGNORE_CASE)               to "Amazon Pay",
     )
 
-    // Maps a raw DLT sender header (e.g. "VM-ICICIB-S", "AD-HDFCBK") to a clean,
-    // readable bank name — this is what shows up instead of the raw sender code
-    // when no merchant name could be extracted from the message body.
-    private val bankDisplayNames: List<Pair<Regex, String>> = listOf(
-        Regex("ICICI", RegexOption.IGNORE_CASE)              to "ICICI Bank",
-        Regex("HDFC", RegexOption.IGNORE_CASE)                to "HDFC Bank",
-        Regex("""\bSBI\b|SBIINB|SBIPSG""", RegexOption.IGNORE_CASE) to "State Bank of India",
-        Regex("AXIS", RegexOption.IGNORE_CASE)                to "Axis Bank",
-        Regex("KOTAK", RegexOption.IGNORE_CASE)               to "Kotak Bank",
-        Regex("""\bPNB\b""", RegexOption.IGNORE_CASE)         to "Punjab National Bank",
-        Regex("""BANK OF INDIA|\bBOI\b""", RegexOption.IGNORE_CASE) to "Bank of India",
-        Regex("""CANARA|\bCANBNK\b""", RegexOption.IGNORE_CASE)     to "Canara Bank",
-        Regex("PAYTM", RegexOption.IGNORE_CASE)               to "Paytm",
-        Regex("""YES\s?BANK|YESBNK""", RegexOption.IGNORE_CASE)     to "Yes Bank",
-        Regex("""INDIAN\s?BANK|INDBNK""", RegexOption.IGNORE_CASE)  to "Indian Bank",
-    )
-
-    /** Cleans a raw sender header into a readable bank name as a last-resort fallback
-     *  (used only when no merchant name could be extracted from the SMS body). */
-    private fun cleanBankName(sender: String): String {
-        for ((pattern, name) in bankDisplayNames) {
-            if (pattern.containsMatchIn(sender)) return name
+    /** Returns the canonical, registered display name of the bank/payment service
+     *  matched in [text] (sender header or message body), or null if none matched. */
+    private fun matchedBankName(text: String): String? {
+        for ((pattern, name) in bankPatterns) {
+            if (pattern.containsMatchIn(text)) return name
         }
-        // Strip a generic DLT header shape like "VM-" / "-S" if we don't recognize the bank
+        return null
+    }
+
+    /** Last-resort cleanup of a raw DLT header (e.g. "VM-ICICIB-S") for cases where
+     *  even bankPatterns didn't recognize it — strips the generic prefix/suffix
+     *  letters DLT headers use, rather than showing the raw code as-is. */
+    private fun cleanRawSenderFallback(sender: String): String {
         return sender
             .replace(Regex("""^[A-Za-z]{2}-"""), "")
             .replace(Regex("""-[A-Za-z]$"""), "")
@@ -117,13 +132,12 @@ object SmsParser {
     fun parse(sender: String, body: String): ExpenseEntity? {
         val normalizedSender = sender.trim()
 
-        val isBank = bankKeywords.any { keyword ->
-            normalizedSender.contains(keyword, ignoreCase = true) ||
-                    body.contains(keyword, ignoreCase = true)
-        }
+        val bankFromSender = matchedBankName(normalizedSender)
+        val bankFromBody = matchedBankName(body)
+        val isBank = bankFromSender != null || bankFromBody != null
         Log.d(TAG, "sender='$normalizedSender' isBank=$isBank")
         if (!isBank) {
-            Log.d(TAG, "Rejected: neither sender nor body matched any known bank")
+            Log.d(TAG, "Rejected: neither sender nor body matched any known bank/payment service")
             return null
         }
 
@@ -153,13 +167,16 @@ object SmsParser {
         }
 
         val now = Date()
-        val title = extractTitle(body, sender)
+
+        // Prefer the actual payee/payer name found inside the message body.
+        // Only fall back to the bank/service's clean, registered name (never the
+        // raw sender/getOriginatingAddress header) when no name is found in the text.
+        val nameFoundInBody = extractTitleFromBody(body)
+        val fallbackBankName = bankFromSender ?: bankFromBody ?: cleanRawSenderFallback(normalizedSender)
+        val title = nameFoundInBody ?: fallbackBankName
+
         val category = classifyCategory(title, body, isDebit)
-        // extractTitle() falls back to the raw sender when no merchant pattern
-        // matched — in that case show a clean bank name instead of the raw
-        // DLT sender code (e.g. "ICICI Bank" instead of "VM-ICICIB-S").
-        val contactDisplayName = if (title != sender) title else cleanBankName(normalizedSender)
-        Log.d(TAG, "Parsed OK: title=$title category=$category amount=$amount contact=$contactDisplayName")
+        Log.d(TAG, "Parsed OK: title=$title category=$category amount=$amount")
 
         return ExpenseEntity(
             category      = category,
@@ -167,7 +184,7 @@ object SmsParser {
             notes         = "Auto-parsed from SMS: $body",
             date          = SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(now),
             time          = SimpleDateFormat("hh:mm a",     Locale.ENGLISH).format(now),
-            contactName   = contactDisplayName,
+            contactName   = title,
             contactNumber = sender,
             icon          = if (isDebit) "\uD83D\uDCB8" else "\uD83D\uDCB0",
             title         = title,
@@ -175,7 +192,9 @@ object SmsParser {
         )
     }
 
-    private fun extractTitle(body: String, sender: String): String {
+    /** Returns the name found inside the message body (merchant, payee, or payer),
+     *  or null if none of the patterns matched — caller decides the fallback. */
+    private fun extractTitleFromBody(body: String): String? {
         for (pattern in titlePatterns) {
             val match = pattern.find(body)?.groupValues?.get(1)?.trim()
             if (!match.isNullOrBlank()) {
@@ -185,7 +204,7 @@ object SmsParser {
                     .joinToString(" ") { word -> word.replaceFirstChar(Char::uppercase) }
             }
         }
-        return sender
+        return null
     }
 
     private fun classifyCategory(title: String, body: String, isDebit: Boolean): String {
@@ -207,7 +226,7 @@ object SmsParser {
             }
         }
 
-        // No merchant keyword matched. If the extracted "title" looks like a plain
+        // No merchant keyword matched. If the extracted title looks like a plain
         // person's name (not an all-caps bank/DLT code) and the message is a
         // UPI/IMPS/NEFT/RTGS payment, it's almost certainly a peer-to-peer
         // transfer rather than a real "Other" expense — label it accordingly.

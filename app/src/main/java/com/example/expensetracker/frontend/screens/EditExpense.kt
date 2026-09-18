@@ -54,7 +54,13 @@ fun EditExpenseScreen(
         return
     }
 
-    var amount           by remember { mutableStateOf(expense.amount.toString()) }
+    var amount           by remember { mutableStateOf(formatAmountForInput(expense.amount)) }
+    // Tracks whether the user has actually pressed a keypad key yet. Without this,
+    // the pre-filled amount string (e.g. "500") gets appended to on the very first
+    // digit tap instead of being replaced — tapping "3" on a ₹500 expense produced
+    // "5003" instead of "3". The first tap after opening this screen now replaces
+    // the whole value; every tap after that behaves normally.
+    var hasEditedAmount  by remember { mutableStateOf(false) }
     var showLimitError   by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf(expense.category) }
     var notes            by remember { mutableStateOf(expense.notes ?: "") }
@@ -85,7 +91,9 @@ fun EditExpenseScreen(
 
     // --- Custom keypad handlers (mirrors AddExpense.kt) --------------------------
     fun handleDigit(digit: String) {
-        val candidate = if (amount == "0") digit else amount + digit
+        val base = if (!hasEditedAmount) "" else amount
+        hasEditedAmount = true
+        val candidate = if (base.isEmpty() || base == "0") digit else base + digit
         if (!candidate.matches(Regex("^\\d*\\.?\\d{0,2}$"))) return
         val numeric = candidate.toDoubleOrNull() ?: 0.0
         if (numeric <= 200000.0) {
@@ -97,12 +105,18 @@ fun EditExpenseScreen(
     }
 
     fun handleDecimalPoint() {
-        if (amount.contains(".")) return
-        amount = if (amount.isEmpty()) "0." else "$amount."
+        val base = if (!hasEditedAmount) "" else amount
+        hasEditedAmount = true
+        if (base.contains(".")) {
+            amount = base
+            return
+        }
+        amount = if (base.isEmpty()) "0." else "$base."
         showLimitError = false
     }
 
     fun handleBackspace() {
+        hasEditedAmount = true
         if (amount.isNotEmpty()) {
             amount = amount.dropLast(1)
             showLimitError = false
@@ -309,3 +323,8 @@ fun EditExpenseScreen(
         }
     }
 }
+
+/** Avoids Double.toString()'s unwanted trailing ".0" on whole-number amounts
+ *  (e.g. shows "500" instead of "500.0" when the edit screen first opens). */
+private fun formatAmountForInput(value: Double): String =
+    if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
