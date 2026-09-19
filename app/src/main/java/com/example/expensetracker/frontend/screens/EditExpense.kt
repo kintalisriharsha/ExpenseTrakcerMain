@@ -54,14 +54,29 @@ fun EditExpenseScreen(
         return
     }
 
-    var amount           by remember { mutableStateOf(formatAmountForInput(expense.amount)) }
-    // Tracks whether the user has actually pressed a keypad key yet. Without this,
-    // the pre-filled amount string (e.g. "500") gets appended to on the very first
-    // digit tap instead of being replaced — tapping "3" on a ₹500 expense produced
-    // "5003" instead of "3". The first tap after opening this screen now replaces
-    // the whole value; every tap after that behaves normally.
+    // Same currentTerm/previousTerms model as AddExpense.kt, so "+" chaining
+    // (e.g. "450+225+180") works here too — it previously only existed on the
+    // Add screen; this screen only had a single flat "amount" string with no
+    // plus-handling at all, so the + key silently did nothing.
+    var currentTerm      by remember { mutableStateOf("") }
+    var previousTerms    by remember { mutableStateOf(listOf<String>()) }
+    // Tracks whether the user has actually pressed a keypad key yet. Until then,
+    // the field shows the expense's existing amount as-is; the first keypress
+    // starts a fresh currentTerm rather than appending to the old value.
     var hasEditedAmount  by remember { mutableStateOf(false) }
     var showLimitError   by remember { mutableStateOf(false) }
+
+    // Live running total: the original amount until editing starts, then every
+    // completed term + whatever's being typed right now (mirrors AddExpense.kt).
+    val totalAmount = if (!hasEditedAmount) {
+        expense.amount
+    } else {
+        previousTerms.sumOf { it.toDoubleOrNull() ?: 0.0 } + (currentTerm.toDoubleOrNull() ?: 0.0)
+    }
+    // "450+225+180" style expression, shown as a chip once there's more than one term
+    val expressionText = if (previousTerms.isNotEmpty()) {
+        (previousTerms + listOfNotNull(currentTerm.ifBlank { null })).joinToString("+")
+    } else null
     var selectedCategory by remember { mutableStateOf(expense.category) }
     var notes            by remember { mutableStateOf(expense.notes ?: "") }
     var selectedDate     by remember { mutableStateOf(expense.date) }
@@ -89,15 +104,15 @@ fun EditExpenseScreen(
     var toast by remember { mutableStateOf<ToastMessage?>(null) }
     var updatedSuccessfully by remember { mutableStateOf(false) }
 
-    // --- Custom keypad handlers (mirrors AddExpense.kt) --------------------------
+    // --- Custom keypad handlers (mirrors AddExpense.kt, incl. "+" chaining) ------
     fun handleDigit(digit: String) {
-        val base = if (!hasEditedAmount) "" else amount
         hasEditedAmount = true
-        val candidate = if (base.isEmpty() || base == "0") digit else base + digit
+        val candidate = if (currentTerm == "0") digit else currentTerm + digit
         if (!candidate.matches(Regex("^\\d*\\.?\\d{0,2}$"))) return
-        val numeric = candidate.toDoubleOrNull() ?: 0.0
-        if (numeric <= 200000.0) {
-            amount = candidate
+        val prospectiveNumeric = candidate.toDoubleOrNull() ?: 0.0
+        val prospectiveTotal   = previousTerms.sumOf { it.toDoubleOrNull() ?: 0.0 } + prospectiveNumeric
+        if (prospectiveTotal <= 200000.0) {
+            currentTerm = candidate
             showLimitError = false
         } else {
             showLimitError = true
@@ -105,27 +120,46 @@ fun EditExpenseScreen(
     }
 
     fun handleDecimalPoint() {
-        val base = if (!hasEditedAmount) "" else amount
         hasEditedAmount = true
-        if (base.contains(".")) {
-            amount = base
-            return
-        }
-        amount = if (base.isEmpty()) "0." else "$base."
+        if (currentTerm.contains(".")) return
+        currentTerm = if (currentTerm.isEmpty()) "0." else "$currentTerm."
         showLimitError = false
     }
 
     fun handleBackspace() {
         hasEditedAmount = true
-        if (amount.isNotEmpty()) {
-            amount = amount.dropLast(1)
+        if (currentTerm.isNotEmpty()) {
+            currentTerm = currentTerm.dropLast(1)
             showLimitError = false
+        } else if (previousTerms.isNotEmpty()) {
+            // Nothing left to erase in the current term — pull the last completed
+            // term back out so it can be edited, undoing the last "+".
+            currentTerm = previousTerms.last()
+            previousTerms = previousTerms.dropLast(1)
         }
+    }
+
+    fun handlePlus() {
+        if (!hasEditedAmount && previousTerms.isEmpty() && currentTerm.isEmpty()) {
+            // First "+" press, before typing anything — seed the chain with the
+            // existing amount so the next number typed gets ADDED to it, instead
+            // of requiring the original amount to be retyped from scratch.
+            previousTerms = listOf(formatAmountForInput(expense.amount))
+            hasEditedAmount = true
+            showLimitError = false
+            return
+        }
+        hasEditedAmount = true
+        val numeric = currentTerm.toDoubleOrNull() ?: 0.0
+        if (numeric <= 0.0) return
+        previousTerms = previousTerms + currentTerm
+        currentTerm = ""
+        showLimitError = false
     }
 
     // --- Save ---------------------------------------------------------------------
     fun saveChanges() {
-        val amountDouble = amount.toDoubleOrNull() ?: 0.0
+        val amountDouble = totalAmount
         if (amountDouble <= 0.0 || selectedCategory.isBlank()) {
             toast = ToastMessage("Please enter a valid amount and category.", ToastType.ERROR)
             return
@@ -231,6 +265,7 @@ fun EditExpenseScreen(
                 onDigitClick     = ::handleDigit,
                 onDecimalClick   = ::handleDecimalPoint,
                 onBackspaceClick = ::handleBackspace,
+                onPlusClick      = ::handlePlus,
                 isDark           = isDark,
                 surface          = surface,
                 border           = border
@@ -245,8 +280,9 @@ fun EditExpenseScreen(
                     .verticalScroll(rememberScrollState())
             ) {
                 AmountInputField(
-                    amount         = amount.toDoubleOrNull() ?: 0.0,
-                    isEmpty        = amount.isEmpty(),
+                    amount         = totalAmount,
+                    isEmpty        = hasEditedAmount && currentTerm.isEmpty() && previousTerms.isEmpty(),
+                    expressionText = expressionText,
                     showLimitError = showLimitError,
                     isDark         = isDark
                 )
@@ -325,6 +361,7 @@ fun EditExpenseScreen(
 }
 
 /** Avoids Double.toString()'s unwanted trailing ".0" on whole-number amounts
- *  (e.g. shows "500" instead of "500.0" when the edit screen first opens). */
+ *  (e.g. "500" instead of "500.0" when seeding the "+" chain with the
+ *  expense's existing amount). */
 private fun formatAmountForInput(value: Double): String =
     if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
