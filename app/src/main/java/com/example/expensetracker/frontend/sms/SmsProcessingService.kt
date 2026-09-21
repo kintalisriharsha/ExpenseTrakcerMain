@@ -36,15 +36,16 @@ class SmsProcessingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val sender = intent?.getStringExtra("sender") ?: return START_NOT_STICKY
         val body   = intent.getStringExtra("body")   ?: return START_NOT_STICKY
+        val timestampMillis = intent.getLongExtra("timestamp", 0L)
 
         serviceScope.launch {
-            processAndStoreSms(sender, body, startId)
+            processAndStoreSms(sender, body, timestampMillis, startId)
         }
         return START_NOT_STICKY
     }
 
-    private suspend fun processAndStoreSms(sender: String, body: String, startId: Int) {
-        val transaction = SmsParser.parse(sender, body)
+    private suspend fun processAndStoreSms(sender: String, body: String, timestampMillis: Long, startId: Int) {
+        val transaction = SmsParser.parse(sender, body, timestampMillis)
 
         if (transaction != null) {
             repository.add(transaction)

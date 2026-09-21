@@ -15,6 +15,26 @@ object SmsParser {
         RegexOption.IGNORE_CASE
     )
 
+    // Fallback for messages that state the amount without a currency symbol right
+    // next to it (e.g. "500.00 has been debited", "debited with 500"). Anchored to
+    // a transaction keyword on either side so it doesn't grab unrelated numbers
+    // like account digits or reference IDs.
+    private val amountNearKeywordRegex = Regex(
+        """(?:debited|credited|spent|paid|withdrawn|purchase|payment|charged|received|deposited|refund)\D{0,15}?([\d,]+\.\d{2})""" +
+                """|([\d,]+\.\d{2})\D{0,15}?(?:debited|credited|spent|paid|withdrawn|purchase|payment|charged|received|deposited|refund)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    // Generic signature of a bank/transaction alert, for senders/bodies that don't
+    // match any name in bankPatterns (a hardcoded list can never cover every bank).
+    // These are the phrases banks almost always include regardless of which bank
+    // it is, so this catches legitimate alerts that would otherwise be silently
+    // dropped just because the institution wasn't on the list.
+    private val genericBankAlertRegex = Regex(
+        """a/?c\s*(?:no)?[.:]?\s*[Xx*]{2,}\d|avl\s*bal|available\s*bal|acct\s*(?:no)?[.:]?\s*[Xx*]{2,}|card\s+(?:ending|no)\s*[Xx*]{0,}\d""",
+        RegexOption.IGNORE_CASE
+    )
+
     private val debitKeywords = listOf(
         "debited", "debit", "spent", "paid", "withdrawn",
         "purchase", "payment", "charged"
@@ -80,14 +100,7 @@ object SmsParser {
             "atm"
         ),
     ).mapValues { (_, keywords) -> keywords.map { it.lowercase() } }
-    // ^ normalized once here so it never matters whether an entry above was typed
-    //   "SmartQ", "SMARTQ", or "smartq" — every keyword is compared in lowercase.
 
-    // Single source of truth for recognizing AND naming a bank/payment service.
-    // Patterns match the real, condensed forms banks use in DLT sender headers
-    // and in the SMS body itself (e.g. "YESBNK", "BOIIND", "INDBNK", "CANBNK"),
-    // not just the spelled-out English name — that mismatch was why valid
-    // messages were being rejected before reaching the database.
     private val bankPatterns: List<Pair<Regex, String>> = listOf(
         Regex("ICICI", RegexOption.IGNORE_CASE)                       to "ICICI Bank",
         Regex("HDFC", RegexOption.IGNORE_CASE)                        to "HDFC Bank",
@@ -129,21 +142,32 @@ object SmsParser {
             .replace(Regex("""-[A-Za-z]$"""), "")
     }
 
-    fun parse(sender: String, body: String): ExpenseEntity? {
+    fun parse(sender: String, body: String, smsTimestampMillis: Long = 0L): ExpenseEntity? {
         val normalizedSender = sender.trim()
 
         val bankFromSender = matchedBankName(normalizedSender)
         val bankFromBody = matchedBankName(body)
-        val isBank = bankFromSender != null || bankFromBody != null
-        Log.d(TAG, "sender='$normalizedSender' isBank=$isBank")
+        // Named-list match is preferred (it gives us a clean display name), but an
+        // unlisted bank whose message still carries the standard alert phrasing
+        // (masked account number, "avl bal", etc.) is accepted too — a hardcoded
+        // list of ~20 banks can never cover every institution that texts alerts.
+        val matchesGenericAlert = genericBankAlertRegex.containsMatchIn(body)
+        val isBank = bankFromSender != null || bankFromBody != null || matchesGenericAlert
+        Log.d(TAG, "sender='$normalizedSender' isBank=$isBank (generic=$matchesGenericAlert)")
         if (!isBank) {
-            Log.d(TAG, "Rejected: neither sender nor body matched any known bank/payment service")
+            Log.d(TAG, "Rejected: neither sender nor body matched any known bank/payment service or generic alert pattern")
             return null
         }
 
-        val amountText = amountRegex.find(body)
+        var amountText = amountRegex.find(body)
             ?.groupValues?.get(1)
             ?.replace(",", "")
+        if (amountText == null) {
+            val fallback = amountNearKeywordRegex.find(body)
+            amountText = (fallback?.groupValues?.get(1)?.takeIf { it.isNotEmpty() }
+                ?: fallback?.groupValues?.get(2))
+                ?.replace(",", "")
+        }
         Log.d(TAG, "amountText=$amountText")
         if (amountText == null) {
             Log.d(TAG, "Rejected: no amount pattern matched in body")
@@ -166,7 +190,11 @@ object SmsParser {
             return null
         }
 
-        val now = Date()
+        // Use the SMS's own send time so a message that Android delivers to us late
+        // (first-run permission dialogs, Doze/battery throttling, delayed delivery)
+        // still lands on the day/time it actually happened, instead of every
+        // delayed message bunching up onto "today".
+        val now = if (smsTimestampMillis > 0L) Date(smsTimestampMillis) else Date()
 
         // Prefer the actual payee/payer name found inside the message body.
         // Only fall back to the bank/service's clean, registered name (never the

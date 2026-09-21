@@ -18,17 +18,20 @@ class SmsReceiver: BroadcastReceiver() {
         val format = bundle.getString("format")
 
         var sender: String? = null
+        var timestampMillis: Long = 0L
         val fullMessage = StringBuilder()
 
         for (pdu in pdus) {
             val sms = SmsMessage.createFromPdu(pdu as ByteArray, format)
             sender = sms.originatingAddress          // separate variable, not appended
+            timestampMillis = sms.timestampMillis     // when the carrier actually sent this SMS,
             fullMessage.append(sms.displayMessageBody) // StringBuilder only reassembles multipart body
         }
 
         val serviceIntent = Intent(context, SmsProcessingService::class.java).apply {
             putExtra("sender", sender ?: "")
             putExtra("body", fullMessage.toString())
+            putExtra("timestamp", timestampMillis)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
