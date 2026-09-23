@@ -86,6 +86,14 @@ The app requests the following permissions, mainly to power automatic SMS-based 
 
 All permissions are optional at runtime where applicable (SMS auto-detection can be skipped in favor of manual entry).
 
+## Note:
+
+For the app to detect your bank SMS reliably, please also enable Autostart for this app in your phone settings.
+
+Settings → Apps → Manage apps → ExpenZo → Autostart → Enable
+
+This is required on Xiaomi (MIUI) devices — without it, the system may block SMS detection when the app isn't actively open. This permission only allows the app to check for new bank messages in the background; it does not give access to anything else on your device.
+
 ## License
 
 No license file is currently included in this repository. Add one (e.g. MIT, Apache 2.0) if you intend for others to use or contribute to this project.
