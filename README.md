@@ -33,22 +33,22 @@ Project Structure
 
 
 app/src/main/java/com/example/expensetracker/
-├── MainActivity.kt                 Entry point, nav host, permission requests
-├── ExpenseTrackerApp.kt            Application class; keeps widgets in sync with Room
+├── MainActivity.kt                 # Entry point, nav host, permission requests
+├── ExpenseTrackerApp.kt            # Application class; keeps widgets in sync with Room
 ├── frontend/
-│   ├── components/                 Reusable Compose UI components
-│   ├── important/                  App state, preferences, contacts, background helper
-│   ├── screens/                    Home, Add/Edit Expense, Analytics, History, Todo, Settings...
+│   ├── components/                 # Reusable Compose UI components
+│   ├── important/                  # App state, preferences, contacts, background helper
+│   ├── screens/                    # Home, Add/Edit Expense, Analytics, History, Todo, Settings...
 │   ├── services/
-│   │   ├── expenseService/         Expense entity, DAO, repository, view model
-│   │   ├── analyticsService/       Analytics entity, DAO, repository, view model
-│   │   ├── homeService/            Home screen data layer
-│   │   ├── settingService/         Settings entity, DAO, repository, view model
-│   │   ├── TodoService/            Todo entity, DAO, repository, view model
-│   │   └── important/              Room database, type converters
-│   ├── sms/                        SMS receiver, parser, and processing service
-│   └── widgets/                    Glance app widgets (Expense, Todo)
-└── ui/theme/                       Compose theme, color, and typography
+│   │   ├── expenseService/         # Expense entity, DAO, repository, view model
+│   │   ├── analyticsService/       # Analytics entity, DAO, repository, view model
+│   │   ├── homeService/            # Home screen data layer
+│   │   ├── settingService/         # Settings entity, DAO, repository, view model
+│   │   ├── TodoService/            # Todo entity, DAO, repository, view model
+│   │   └── important/              # Room database, type converters
+│   ├── sms/                        # SMS receiver, parser, and processing service
+│   └── widgets/                    # Glance app widgets (Expense, Todo)
+└── ui/theme/                       # Compose theme, color, and typography
 
 
 Requirements
