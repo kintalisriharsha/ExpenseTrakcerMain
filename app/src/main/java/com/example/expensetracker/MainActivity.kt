@@ -1,6 +1,7 @@
 package com.example.expensetracker
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -11,6 +12,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -64,14 +66,16 @@ class MainActivity : ComponentActivity() {
         val expenseRepository  = ExpenseRepository(db.expenseDao())
         val settingRepository  = SettingRepository(db.settingDao())
         val homeRepository     = HomeRepository(db.homeDao())
-        val analyticsRepo      = AnalyticsRepository(db.analyticsDao())
+        val analyticsRepo      = AnalyticsRepository(
+            db.analyticsDao(),
+            settingRepository = settingRepository
+        )
         val todoRepository     = TodoRepository(db.todoDao())
 
         setContent {
             ExpenseTrackerTheme {
                 val navController = rememberNavController()
-                val context = androidx.compose.ui.platform.LocalContext.current
-
+                val context = LocalContext.current
                 val todoViewModel: TodoViewModel           = viewModel(factory = TodoViewModelFactory(todoRepository))
                 val settingViewModel: SettingViewModel     = viewModel(factory = SettingViewModelFactory(settingRepository))
                 val expenseViewModel: ExpenseViewModel     = viewModel(factory = ExpenseViewModelFactory(expenseRepository))
@@ -216,7 +220,7 @@ class MainActivity : ComponentActivity() {
                         try {
                             batteryOptLauncher.launch(intent)
                             suspendCancellableCoroutine<Unit> { cont -> batteryOptResult = cont }
-                        } catch (e: android.content.ActivityNotFoundException) {
+                        } catch (e: ActivityNotFoundException) {
                             // A handful of OEM builds strip this screen out — nothing more we can do.
                         }
                     }

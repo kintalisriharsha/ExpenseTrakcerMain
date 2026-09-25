@@ -79,7 +79,7 @@ object SmsParser {
         ),
         "Travel" to listOf(
             "uber", "ola", "rapido", "irctc", "makemytrip", "goibibo",
-            "indigo", "vistara", "airindia", "redbus", "yatra"
+            "indigo", "vistara", "airindia", "redbus", "yatra", "cumta"
         ),
         "Fuel" to listOf(
             "petrol", "diesel", "fuel", "hpcl", "iocl", "bpcl", "indianoil"

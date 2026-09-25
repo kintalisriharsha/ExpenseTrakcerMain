@@ -58,6 +58,11 @@ private val categoryPalette = listOf(
     Color(0xFFD1D5DB),
 )
 
+// Default daily-spend thresholds used to color the heatmap.
+// Below LOW = "Low", between LOW and HIGH = "Medium"/"High", at/above HIGH = "Most spent" (over budget).
+private const val DEFAULT_DAILY_BUDGET_LOW  = 160f
+private const val DEFAULT_DAILY_BUDGET_HIGH = 200f
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -211,6 +216,7 @@ private fun AnalyticsContent(
             MonthlyTrendCard(
                 months   = data.monthlyTrend.months,
                 trendPct = data.monthlyTrend.trendPct.toFloat(),
+                budget   = data.monthlyTrend.budget.toFloat(),
                 cardBg   = cardBg,
                 isDark   = isDark,
             )
@@ -222,6 +228,9 @@ private fun AnalyticsContent(
             avgSpend  = data.heatmap.avgSpend.toFloat(),
             cardBg    = cardBg,
             isDark    = isDark,
+            // Tune these to match your actual per-day budget. Defaults: 160 / 200.
+            dailyBudgetLow  = DEFAULT_DAILY_BUDGET_LOW,
+            dailyBudgetHigh = DEFAULT_DAILY_BUDGET_HIGH,
         )
 
         Spacer(Modifier.height(8.dp))
@@ -238,9 +247,10 @@ fun TotalSpentCard(
     cardBg  : Color,
     isDark  : Boolean,
 ) {
-    val progress      = (usedPct / 100f).coerceIn(0f, 1f)
-    val textPrimary   = if (isDark) Color.White else TextPrimary
-    val textSecondary = if (isDark) Color(0xFFADB5C7) else TextSecondary
+    val hasBudget      = budget > 0f
+    val progress       = if (hasBudget) (usedPct / 100f).coerceIn(0f, 1f) else 0f
+    val textPrimary    = if (isDark) Color.White else TextPrimary
+    val textSecondary  = if (isDark) Color(0xFFADB5C7) else TextSecondary
 
     val animatedProgress by animateFloatAsState(
         targetValue   = progress,
@@ -268,24 +278,42 @@ fun TotalSpentCard(
                 modifier              = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("Budget: ₹${"%.2f".format(budget)}", fontSize = 13.sp, color = textSecondary)
                 Text(
-                    "${usedPct.toInt()}% Used",
-                    fontSize   = 13.sp,
-                    color      = if (usedPct >= 100f) Color(0xFFDC2626) else PrimaryBlue,
-                    fontWeight = FontWeight.Medium
+                    if (hasBudget) "Budget: ₹${"%.2f".format(budget)}" else "No budget set",
+                    fontSize = 13.sp,
+                    color    = textSecondary
                 )
+                if (hasBudget) {
+                    Text(
+                        "${usedPct.toInt()}% Used",
+                        fontSize   = 13.sp,
+                        color      = if (usedPct >= 100f) Color(0xFFDC2626) else PrimaryBlue,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
             Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(
-                progress   = { animatedProgress },
-                modifier   = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp)),
-                color      = if (usedPct >= 100f) Color(0xFFDC2626) else PrimaryBlue,
-                trackColor = if (isDark) Color(0xFF2A3347) else ProgressTrack,
-            )
+            if (hasBudget) {
+                LinearProgressIndicator(
+                    progress   = { animatedProgress },
+                    modifier   = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp)),
+                    color      = if (usedPct >= 100f) Color(0xFFDC2626) else PrimaryBlue,
+                    trackColor = if (isDark) Color(0xFF2A3347) else ProgressTrack,
+                )
+            } else {
+                // Empty track as a subtle placeholder so the card height doesn't jump
+                // once a budget is added later.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (isDark) Color(0xFF2A3347) else ProgressTrack)
+                )
+            }
         }
     }
 }
@@ -392,6 +420,7 @@ fun DonutChart(categories: List<CategoryAmountRow>, total: Double) {
 fun MonthlyTrendCard(
     months   : List<MonthTrendItem>,
     trendPct : Float,
+    budget   : Float,
     cardBg   : Color,
     isDark   : Boolean,
 ) {
@@ -419,48 +448,42 @@ fun MonthlyTrendCard(
 
                 // Only show badge when there is a meaningful trend
                 if (trendPct != 0f) {
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color(0xFFEFF6FF)
-                    ) {
-                        Row(
-                            modifier          = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                if (trendPct >= 0) Icons.Default.TrendingUp else Icons.Default.TrendingDown,
-                                contentDescription = null,
-                                tint     = if (trendPct >= 0) Color(0xFFEF4444) else Color(0xFF22C55E),
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                "${"%.1f".format(trendPct)}% vs last month",
-                                fontSize   = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color      = if (trendPct >= 0) Color(0xFFEF4444) else Color(0xFF22C55E)
-                            )
-                        }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            if (trendPct >= 0) Icons.Default.TrendingUp else Icons.Default.TrendingDown,
+                            contentDescription = null,
+                            tint     = if (trendPct >= 0) Color(0xFFEF4444) else Color(0xFF22C55E),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "${"%.1f".format(kotlin.math.abs(trendPct))}% vs last month",
+                            fontSize   = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color      = if (trendPct >= 0) Color(0xFFEF4444) else Color(0xFF22C55E)
+                        )
                     }
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(20.dp))
 
-            // Extra top padding so ₹ labels above the first point aren't clipped
+            // Full-width axis chart — always drawn, even with a single month of history,
+            // so the card never collapses down to a bare number.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(140.dp)
-                    .padding(top = 20.dp)
+                    .height(190.dp)
             ) {
-                LineChart(months = months, isDark = isDark)
+                LineChart(months = months, budget = budget, isDark = isDark)
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
 
             Row(
-                modifier              = Modifier.fillMaxWidth(),
+                modifier              = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 44.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 months.forEach { m ->
@@ -472,47 +495,84 @@ fun MonthlyTrendCard(
                     )
                 }
             }
+
+            // Simple dot legend — no filled swatch boxes
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(PrimaryBlue))
+                Spacer(Modifier.width(6.dp))
+                Text("Actual", fontSize = 11.sp, color = textSecondary)
+                if (budget > 0f) {
+                    Spacer(Modifier.width(16.dp))
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFF59E0B)))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Budget", fontSize = 11.sp, color = textSecondary)
+                }
+            }
         }
     }
 }
 
 @Composable
-fun LineChart(months: List<MonthTrendItem>, isDark: Boolean) {
-    val cardBg = if (isDark) Color(0xFF1E293B) else CardBg
+fun LineChart(months: List<MonthTrendItem>, budget: Float, isDark: Boolean) {
+    val gridColor  = if (isDark) Color(0xFF334155) else Color(0xFFE5E7EB)
+    val labelColor = if (isDark) "#94A3B8".toColorInt() else "#6B7280".toColorInt()
+    val dotFill    = if (isDark) Color(0xFF1E293B) else CardBg
 
     Canvas(modifier = Modifier.fillMaxSize()) {
         if (months.isEmpty()) return@Canvas
 
-        val maxVal = months.maxOf { it.amount }.toFloat()
-        val minVal = months.minOf { it.amount }.toFloat()
-        val range  = (maxVal - minVal).takeIf { it > 0 } ?: 1f
+        val dataMax = months.maxOf { it.amount }.toFloat()
+        val axisMax = (maxOf(dataMax, budget) * 1.2f).let { if (it <= 0f) 100f else it }
+        val tickCount = 4
 
-        val points = months.mapIndexed { i, m ->
-            val x = if (months.size > 1) i / (months.size - 1f) * size.width else size.width / 2f
-            val y = size.height - ((m.amount.toFloat() - minVal) / range) * size.height * 0.85f - size.height * 0.07f
-            Offset(x, y)
+        val leftPad  = 46f
+        val topPad   = 8f
+        val plotWidth  = size.width - leftPad
+        val plotHeight = size.height - topPad
+
+        fun yFor(amount: Float) = topPad + plotHeight - (amount / axisMax) * plotHeight
+        fun xFor(i: Int) = leftPad + if (months.size > 1) i / (months.size - 1f) * plotWidth else plotWidth / 2f
+
+        val labelPaint = android.graphics.Paint().apply {
+            textSize    = 24f
+            color       = labelColor
+            textAlign   = android.graphics.Paint.Align.RIGHT
+            isAntiAlias = true
         }
 
-        // Fill area under line
-        val fillPath = Path().apply {
-            moveTo(points.first().x, size.height)
-            points.forEach { lineTo(it.x, it.y) }
-            lineTo(points.last().x, size.height)
-            close()
+        // Horizontal gridlines + ₹ axis labels, like a standard line-chart axis
+        for (t in 0..tickCount) {
+            val value = axisMax / tickCount * t
+            val y = yFor(value)
+            drawLine(gridColor, Offset(leftPad, y), Offset(size.width, y), strokeWidth = 1f)
+            val label = if (value >= 1000) "₹${"%.1f".format(value / 1000)}k" else "₹${value.toInt()}"
+            drawContext.canvas.nativeCanvas.drawText(label, leftPad - 10f, y + 8f, labelPaint)
         }
-        drawPath(
-            path  = fillPath,
-            brush = Brush.verticalGradient(
-                colors = listOf(Color(0x442563EB), Color(0x002563EB)),
-                startY = 0f,
-                endY   = size.height
+
+        // Flat "Budget" goal line across the whole window, same idea as the reference chart
+        if (budget > 0f) {
+            val goalY = yFor(budget)
+            drawLine(
+                color       = Color(0xFFF59E0B),
+                start       = Offset(leftPad, goalY),
+                end         = Offset(size.width, goalY),
+                strokeWidth = 3f
             )
-        )
+            months.indices.forEach { i ->
+                drawCircle(Color(0xFFF59E0B), radius = 4f, center = Offset(xFor(i), goalY))
+            }
+        }
 
-        // Line
+        // Actual spend line, smoothed between points
+        val points = months.mapIndexed { i, m -> Offset(xFor(i), yFor(m.amount.toFloat())) }
         val linePath = Path().apply {
-            points.forEachIndexed { i, pt ->
-                if (i == 0) moveTo(pt.x, pt.y) else lineTo(pt.x, pt.y)
+            moveTo(points.first().x, points.first().y)
+            for (i in 0 until points.size - 1) {
+                val p0 = points[i]
+                val p1 = points[i + 1]
+                val midX = (p0.x + p1.x) / 2f
+                cubicTo(midX, p0.y, midX, p1.y, p1.x, p1.y)
             }
         }
         drawPath(
@@ -520,27 +580,9 @@ fun LineChart(months: List<MonthTrendItem>, isDark: Boolean) {
             color = PrimaryBlue,
             style = Stroke(width = 3f, cap = StrokeCap.Round, join = StrokeJoin.Round)
         )
-
-        // Dots
         points.forEach { pt ->
-            drawCircle(color = cardBg,      radius = 5f, center = pt)
+            drawCircle(color = dotFill,     radius = 5f, center = pt)
             drawCircle(color = PrimaryBlue, radius = 4f, center = pt, style = Stroke(width = 2f))
-        }
-
-        // ₹ amount labels above each dot
-        val labelPaint = android.graphics.Paint().apply {
-            textSize    = 28f
-            color       = "#6B7280".toColorInt()
-            textAlign   = android.graphics.Paint.Align.CENTER
-            isAntiAlias = true
-        }
-        months.forEachIndexed { i, m ->
-            val pt    = points[i]
-            val label = if (m.amount >= 1000)
-                "₹${"%.1f".format(m.amount.toFloat() / 1000)}k"
-            else
-                "₹${m.amount.toInt()}"
-            drawContext.canvas.nativeCanvas.drawText(label, pt.x, pt.y - 14f, labelPaint)
         }
     }
 }
@@ -550,17 +592,20 @@ fun LineChart(months: List<MonthTrendItem>, isDark: Boolean) {
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun SpendingHeatmapCard(
-    yearMonth : YearMonth,
-    dailyData : Map<Int, Float>,
-    avgSpend  : Float,
-    cardBg    : Color,
-    isDark    : Boolean,
+    yearMonth       : YearMonth,
+    dailyData       : Map<Int, Float>,
+    avgSpend        : Float,
+    cardBg          : Color,
+    isDark          : Boolean,
+    // Absolute daily-spend thresholds (not relative to this month's max).
+    // A day below `dailyBudgetLow` is "Low/Medium", at/above `dailyBudgetHigh` is "Most spent" (over budget).
+    dailyBudgetLow  : Float = DEFAULT_DAILY_BUDGET_LOW,
+    dailyBudgetHigh : Float = DEFAULT_DAILY_BUDGET_HIGH,
 ) {
     val daysOfWeek  = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
     val firstDay    = yearMonth.atDay(1)
     val startOffset = firstDay.dayOfWeek.value - 1
     val totalDays   = yearMonth.lengthOfMonth()
-    val maxSpend    = dailyData.values.maxOrNull() ?: 1f
     val textPrimary   = if (isDark) Color.White else TextPrimary
     val textSecondary = if (isDark) Color(0xFFADB5C7) else TextSecondary
 
@@ -615,16 +660,17 @@ fun SpendingHeatmapCard(
                             contentAlignment = Alignment.Center
                         ) {
                             if (day != null) {
-                                val spend     = dailyData[day] ?: 0f
-                                val intensity = if (maxSpend > 0) spend / maxSpend else 0f
-                                val bgColor   = when {
-                                    intensity == 0f   -> if (isDark) Color(0xFF1E293B) else Color(0xFFF3F4F6)
-                                    intensity < 0.3f  -> Color(0xFFBFDBFE)
-                                    intensity < 0.6f  -> Color(0xFF60A5FA)
-                                    intensity < 0.85f -> Color(0xFF3B82F6)
-                                    else              -> Color(0xFF1D4ED8)
+                                val spend   = dailyData[day] ?: 0f
+                                // Color tiers based on fixed budget thresholds instead of the month's relative max.
+                                val bgColor = when {
+                                    spend <= 0f                    -> if (isDark) Color(0xFF1E293B) else Color(0xFFF3F4F6)
+                                    spend < dailyBudgetLow * 0.5f   -> Color(0xFFBFDBFE)
+                                    spend < dailyBudgetLow          -> Color(0xFF60A5FA)
+                                    spend < dailyBudgetHigh         -> Color(0xFF3B82F6)
+                                    else                             -> Color(0xFF1D4ED8) // at/over budget
                                 }
-                                val textColor = if (intensity >= 0.6f) Color.White else textPrimary
+                                val isDarkCell = spend >= dailyBudgetLow
+                                val textColor  = if (isDarkCell) Color.White else textPrimary
 
                                 Box(
                                     modifier         = Modifier
@@ -637,7 +683,7 @@ fun SpendingHeatmapCard(
                                         "$day",
                                         fontSize   = 12.sp,
                                         color      = textColor,
-                                        fontWeight = if (intensity >= 0.6f) FontWeight.SemiBold else FontWeight.Normal
+                                        fontWeight = if (isDarkCell) FontWeight.SemiBold else FontWeight.Normal
                                     )
                                 }
                             }
@@ -650,7 +696,11 @@ fun SpendingHeatmapCard(
 
             // Color guide legend
             Column {
-                Text("Color guide:", fontSize = 12.sp, color = textSecondary)
+                Text(
+                    "Color guide (daily budget ₹${dailyBudgetLow.toInt()}–₹${dailyBudgetHigh.toInt()}):",
+                    fontSize = 12.sp,
+                    color    = textSecondary
+                )
                 Spacer(Modifier.height(6.dp))
                 Row(
                     modifier              = Modifier.fillMaxWidth(),
@@ -662,7 +712,7 @@ fun SpendingHeatmapCard(
                         Pair(Color(0xFFBFDBFE), "Low"),
                         Pair(Color(0xFF60A5FA), "Medium"),
                         Pair(Color(0xFF3B82F6), "High"),
-                        Pair(Color(0xFF1D4ED8), "Most spent"),
+                        Pair(Color(0xFF1D4ED8), "Over budget"),
                     ).forEach { (color, label) ->
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(

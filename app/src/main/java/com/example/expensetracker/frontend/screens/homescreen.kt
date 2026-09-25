@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
@@ -140,6 +141,7 @@ private fun categoryMeta(category: String): CategoryMeta = when (category.lowerc
     "housing"   -> CategoryMeta(Icons.Outlined.Home,            Color(0xFFDBEAFE),  Color(0xFF1E2A40),  Color(0xFF3B82F6))
     "health"    -> CategoryMeta(Icons.Outlined.MedicalServices, Color(0xFFFFE4E6),  Color(0xFF3D1A1D),  Color(0xFFE74C3C))
     "education" -> CategoryMeta(Icons.Outlined.School,          Color(0xFFFEF9C3),  Color(0xFF2D2A0A),  Color(0xFFD4A017))
+    "credit/debit card" -> CategoryMeta(Icons.Filled.CreditCard, Color(0xFFCCFBF1), Color(0xFF0F3D3A),  Color(0xFF0D9488))
     else        -> CategoryMeta(Icons.Outlined.MoreHoriz,       Color(0xFFF1F5F9),  Color(0xFF1E2230),  Color(0xFF94A3B8))
 }
 
@@ -1001,13 +1003,13 @@ private fun ExpenseCard(
                             fontWeight = FontWeight.Bold,
                             color      = textPrimary
                         )
-                        Spacer(Modifier.padding(horizontal = 40.dp))
-                        Text(
-                            text = "-₹${"%.2f".format(expense.amount).take(3)}..",
-                            fontSize   = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color      = Color(0xFFDC2626)
-                        )
+//                        Spacer(Modifier.padding(horizontal = 40.dp))
+//                        Text(
+//                            text = "-₹${"%.2f".format(expense.amount).take(3)}..",
+//                            fontSize   = 17.sp,
+//                            fontWeight = FontWeight.Bold,
+//                            color      = Color(0xFFDC2626)
+//                        )
                     }
 
                     Text(

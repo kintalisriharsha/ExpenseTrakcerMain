@@ -37,14 +37,13 @@ class AnalyticsViewModel(private val repo: AnalyticsRepository) : ViewModel() {
     private var observeJob: Job? = null
 
     // Starts (or restarts) a live subscription to the Room-backed summary.
-    // Because this is a Flow all the way down to the `expenses` table, the
-    // screen updates automatically whenever an expense is added/edited/deleted
-    // — no manual refresh needed.
+    // Because this is a Flow all the way down to the `expenses` (and now `settings`)
+    // tables, the screen updates automatically whenever an expense is added/edited/deleted
+    // or the budget is changed in Settings — no manual refresh needed.
     fun loadSummary(
         month: Int? = null,
         year: Int? = null,
         trendMonths: Int = 6,
-        monthlyBudget: Double = 0.0,
     ) {
         _selectedMonth.value = month
         _selectedYear.value = year
@@ -52,7 +51,7 @@ class AnalyticsViewModel(private val repo: AnalyticsRepository) : ViewModel() {
         observeJob?.cancel()
         observeJob = viewModelScope.launch {
             _state.value = AnalyticsUiState.Loading
-            repo.getSummary(month, year, trendMonths, monthlyBudget)
+            repo.getSummary(month, year, trendMonths)
                 .catch { e -> _state.value = AnalyticsUiState.Error(e.message ?: "Something went wrong") }
                 .collectLatest { summary -> _state.value = AnalyticsUiState.Loaded(summary) }
         }

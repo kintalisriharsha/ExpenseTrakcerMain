@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Home
@@ -113,13 +114,14 @@ data class Category(
 )
 
 val categories = listOf(
-    Category("Food",       Icons.Filled.Restaurant,      Color(0xFF1152D4), Color(0xFFFFFFFF)),
+    Category("Food & Dining",       Icons.Filled.Restaurant,      Color(0xFF1152D4), Color(0xFFFFFFFF)),
     Category("Transport",  Icons.Filled.DirectionsCar,   Color(0xFFFFEDD5), Color(0xFFEA580C)),
     Category("Shopping",   Icons.Filled.ShoppingBag,     Color(0xFFDCFCE7), Color(0xFF16A34A)),
     Category("Leisure",    Icons.Filled.Movie,           Color(0xFFF3E8FF), Color(0xFF9333EA)),
     Category("Housing",    Icons.Filled.Home,            Color(0xFFDBEAFE), Color(0xFF3B82F6)),
     Category("Health",     Icons.Filled.MedicalServices, Color(0xFFFFE4E6), Color(0xFFE74C3C)),
     Category("Education",  Icons.Filled.School,          Color(0xFFFEF9C3), Color(0xFFD4A017)),
+//    Category("Credit/Debit Card", Icons.Filled.CreditCard, Color(0xFFCCFBF1), Color(0xFF0D9488)),
     Category("Other",      Icons.Filled.MoreHoriz,       Color(0xFFF1F5F9), Color(0xFF94A3B8)),
 )
 
@@ -159,7 +161,7 @@ private val uiCategoryKeywords: LinkedHashMap<String, List<String>> = linkedMapO
     "Education" to listOf(
         "school", "college", "tuition", "course", "udemy", "coursera",
         "books", "fees", "exam"
-    ),
+    )
 )
 
 /** Best-guess UI category for whatever the user has typed so far (merchant name,

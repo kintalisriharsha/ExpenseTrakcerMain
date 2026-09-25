@@ -24,6 +24,9 @@ data class MonthTrendItem(
 data class MonthlyTrend(
     val trendPct: Double,
     val months: List<MonthTrendItem>,
+    // Current monthly budget, reused as the flat "goal" reference line across the whole
+    // trend window. 0.0 when no budget is set.
+    val budget: Double = 0.0,
 )
 
 data class HeatmapDay(
