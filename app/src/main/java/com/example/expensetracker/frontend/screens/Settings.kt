@@ -582,7 +582,7 @@ fun Settings(
                             }
                             Spacer(Modifier.width(14.dp))
                             Text(
-                                "Push Notifications",
+                                "Auto Expense",
                                 fontSize   = 20.sp,
                                 color      = textPrimary,
                                 fontWeight = FontWeight.Bold

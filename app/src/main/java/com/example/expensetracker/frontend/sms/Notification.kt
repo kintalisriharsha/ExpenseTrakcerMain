@@ -23,10 +23,12 @@ fun createNotification(
     context: Context,
     title: String,
     amount: Double,
-    category: String
+    category: String,
+    paymentMode: String = "Bank"
 ): NotificationCompat.Builder {
     val notifTitle = context.getString(R.string.app_name)
-    val notifBody  = "Added $title \u2014 $category \u00B7 \u20B9${formatAmount(amount)} to your records"
+    val modeLabel = if (paymentMode == "Credit Card") " (Credit Card)" else ""
+    val notifBody = "Added $title \u2014 $category \u00B7 \u20B9${formatAmount(amount)}$modeLabel to your records"
     val intent = Intent(context, MainActivity::class.java).apply {
         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
     }
@@ -68,7 +70,8 @@ fun showTransactionNotification(context: Context, transaction: ExpenseEntity) {
             context,
             transaction.title,
             transaction.amount,
-            transaction.category
+            transaction.category,
+            transaction.paymentMode
         )
 
         NotificationManagerCompat.from(context)

@@ -17,4 +17,6 @@ data class ExpenseEntity(
     val contactNumber: String,
     val icon: String,
     val title: String,
+    // "Bank" (default) or "Credit Card". Credit card spends are kept out of daily/weekly/monthly totals.
+    val paymentMode: String = "Bank",
 )

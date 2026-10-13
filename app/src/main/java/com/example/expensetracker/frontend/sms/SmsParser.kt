@@ -16,6 +16,12 @@ object SmsParser {
         RegexOption.IGNORE_CASE
     )
 
+    // Amounts preceded by these words are limits/balances/dues, not the transaction itself
+    private val ignoredAmountContextRegex = Regex(
+        """(avl|avail\w*|bal\w*|limit|lmt|outstanding|total\s*due|min\w*\s*due)[^\d]{0,15}$""",
+        RegexOption.IGNORE_CASE
+    )
+
     // Fallback amount regex anchored to keywords when no currency symbol is present
     private val amountNearKeywordRegex = Regex(
         """(?:debited|credited|spent|paid|withdrawn|purchase|payment|charged|received|deposited|refund)\D{0,15}?([\d,]+(?:\.\d{2})?)""" +
@@ -32,8 +38,6 @@ object SmsParser {
         RegexOption.IGNORE_CASE
     )
 
-    // Real transaction amounts are essentially never this large; guards against a stray
-    // long digit sequence (phone number, OTP, etc.) that slips past sanitization.
     private const val MAX_PLAUSIBLE_AMOUNT = 9_999_999.0
 
     // Generic bank alert signature for unlisted sender headers
@@ -42,18 +46,37 @@ object SmsParser {
         RegexOption.IGNORE_CASE
     )
 
-    private val debitKeywords = listOf(
-        "debited", "debit", "spent", "paid", "withdrawn",
-        "purchase", "payment", "charged"
+    // Card bill payments, dues and statement alerts are NOT expenses
+    private val nonTransactionRegex = Regex(
+        """payment\s+(?:of\s+)?(?:rs\.?\s?[\d,.]+\s+)?(?:has\s+been\s+)?received""" +
+                """|received\s+(?:towards|against)\s+(?:your\s+)?(?:\w+\s+)?card""" +
+                """|thank\s+you\s+for\s+(?:the\s+)?payment""" +
+                """|(?:payment|bill|minimum|min\.?|total)\s+(?:amount\s+)?(?:is\s+)?due""" +
+                """|statement\s+(?:for|generated|dated|is\s+ready)""",
+        RegexOption.IGNORE_CASE
     )
 
-    private val creditKeywords = listOf(
-        "credited", "credit", "received", "deposited", "refund"
+    // Detects spends made with a credit card
+    private val creditCardRegex = Regex(
+        """credit\s*card|\bcr\.?\s*card\b|\bcredit\s*crd\b|\bcc\b|sbi\s*card|SBICRD""",
+        RegexOption.IGNORE_CASE
+    )
+
+    // Clear debit words
+    private val strongDebitKeywords = listOf(
+        "debited", "spent", "paid", "withdrawn", "purchase", "charged"
+    )
+
+    // Looser words; only count as debit when the SMS does not look like money coming in
+    private val weakDebitKeywords = listOf("debit", "payment")
+
+    private val incomingMoneyRegex = Regex(
+        """\bcredited\b|\breceived\b|\bdeposited\b|\brefund""",
+        RegexOption.IGNORE_CASE
     )
 
     // Ordered payee/merchant extraction regexes (most specific first)
     private val titlePatterns = listOf(
-        // ICICI & general bank format: "...debited for Rs X; <Name> credited."
         Regex("""[;.]?\s*([A-Za-z0-9&.\-_' ]{2,30}?)\s+credited\b""", RegexOption.IGNORE_CASE),
         Regex("""\bat\s+([A-Za-z0-9&.\-_' ]{2,30}?)(?:\s+on\b|\s+ref\b|[.,]|\s*$)""", RegexOption.IGNORE_CASE),
         Regex("""\bto\s+(?:VPA\s+)?([A-Za-z0-9@.\-_' ]{2,30}?)(?:\s+on\b|\s+ref\b|[.,]|\s*$)""", RegexOption.IGNORE_CASE),
@@ -64,6 +87,7 @@ object SmsParser {
         Regex("""\btowards\s+([A-Za-z0-9&.\-_' ]{2,30}?)(?:\s+on\b|\s+ref\b|[.,]|\s*$)""", RegexOption.IGNORE_CASE),
     )
 
+    // Order matters: first matching category wins
     private val categoryKeywords: Map<String, List<String>> = linkedMapOf(
         "Food & Dining" to listOf(
             "swiggy", "zomato", "restaurant", "cafe", "food", "dominos",
@@ -110,6 +134,28 @@ object SmsParser {
         ),
     ).mapValues { (_, keywords) -> keywords.map { it.lowercase() } }
 
+    // Icon shown for each category
+    private val categoryIcons: Map<String, String> = mapOf(
+        "Food & Dining"     to "🍔",
+        "Groceries"         to "🛒",
+        "Shopping"          to "🛍️",
+        "Travel"            to "✈️",
+        "Fuel"              to "⛽",
+        "Bills & Utilities" to "💡",
+        "Entertainment"     to "🎬",
+        "Healthcare"        to "🏥",
+        "Rent"              to "🏠",
+        "Insurance"         to "🛡️",
+        "Loan / EMI"        to "🏦",
+        "ATM Withdrawal"    to "💵",
+        "Transfer"          to "🔁",
+        "Other"             to "💸",
+    )
+
+    private fun iconForCategory(category: String): String =
+        categoryIcons[category] ?: "💸"
+
+
     private val bankPatterns: List<Pair<Regex, String>> = listOf(
         Regex("ICICI", RegexOption.IGNORE_CASE)                         to "ICICI Bank",
         Regex("HDFC", RegexOption.IGNORE_CASE)                          to "HDFC Bank",
@@ -148,10 +194,20 @@ object SmsParser {
         return if (cleaned.isNotBlank()) cleaned else "Bank Alert"
     }
 
+    /** First currency amount that is not an available limit / balance / due figure. */
+    private fun findTransactionAmount(body: String): String? {
+        for (m in amountRegex.findAll(body)) {
+            val before = body.substring(maxOf(0, m.range.first - 25), m.range.first)
+            if (ignoredAmountContextRegex.containsMatchIn(before)) continue
+            return m.groupValues[1].replace(",", "")
+        }
+        return null
+    }
+
     fun parse(sender: String, body: String, smsTimestampMillis: Long = 0L): ExpenseEntity? {
         val normalizedSender = sender.trim()
 
-        // 1. BANK DETECTION & FALLBACK
+        // 1. BANK DETECTION
         val bankFromSender = matchedBankName(normalizedSender)
         val bankFromBody = matchedBankName(body)
         val matchesGenericAlert = genericBankAlertRegex.containsMatchIn(body)
@@ -162,16 +218,17 @@ object SmsParser {
             return null
         }
 
+        // Card bill payments / dues / statements are not expenses
+        if (nonTransactionRegex.containsMatchIn(body)) {
+            Log.d(TAG, "Rejected: bill payment / due / statement alert")
+            return null
+        }
+
         // 2. AMOUNT DETECTION & FALLBACK
         var amountSource = "primary"
-        var amountText = amountRegex.find(body)
-            ?.groupValues?.get(1)
-            ?.replace(",", "")
+        var amountText = findTransactionAmount(body)
 
         if (amountText == null) {
-            // Strip account/card/reference numbers so the keyword-proximity fallback
-            // can't mistake them for the transaction amount (e.g. "debited from
-            // A/c XX8823451" used to yield amount = 8823451).
             val sanitizedBody = body.replace(nonAmountDigitSpanRegex, " ")
             val fallback = amountNearKeywordRegex.find(sanitizedBody)
             amountText = (fallback?.groupValues?.get(1)?.takeIf { it.isNotEmpty() }
@@ -191,37 +248,40 @@ object SmsParser {
             return null
         }
 
-        // Sanity guard: reject implausibly large "amounts" that are almost certainly
-        // a mis-captured account/reference/phone number that slipped through.
         if (amount > MAX_PLAUSIBLE_AMOUNT) {
             Log.d(TAG, "Rejected: Amount $amount exceeds plausible transaction ceiling (source=$amountSource)")
             return null
         }
 
-        // 3. DEBIT/CREDIT DETECTION
+        // 3. DEBIT ONLY - all credits are ignored
         val lowerBody = body.lowercase()
-        val isDebit = debitKeywords.any { lowerBody.contains(it) }
-        val isCredit = creditKeywords.any { lowerBody.contains(it) }
+        val hasStrongDebit = strongDebitKeywords.any { lowerBody.contains(it) }
+        val hasWeakDebit = weakDebitKeywords.any { lowerBody.contains(it) }
+        val isDebit = hasStrongDebit || (hasWeakDebit && !incomingMoneyRegex.containsMatchIn(body))
 
-        if (!isDebit && !isCredit) {
-            Log.d(TAG, "Rejected: No debit or credit keywords matched")
+        if (!isDebit) {
+            Log.d(TAG, "Rejected: Not a debit transaction")
             return null
         }
 
-        // 4. TITLE / MERCHANT EXTRACTION WITH FALLBACKS
-        // Order: Extracted Name -> Bank Name -> Cleaned Sender Header -> "Unknown Merchant"
+        // 4. PAYMENT MODE
+        val isCreditCard = creditCardRegex.containsMatchIn(body) ||
+                creditCardRegex.containsMatchIn(normalizedSender)
+        val paymentMode = if (isCreditCard) "Credit Card" else "Bank"
+
+        // 5. TITLE / MERCHANT EXTRACTION WITH FALLBACKS
         val extractedName = extractTitleFromBody(body)
         val bankName = bankFromSender ?: bankFromBody
         val titleFallback = bankName ?: cleanRawSenderFallback(normalizedSender)
         val title = extractedName ?: titleFallback
 
-        // 5. CATEGORY CLASSIFICATION WITH GUARANTEED FALLBACK
-        val category = classifyCategory(title, body, isDebit)
+        // 6. CATEGORY
+        val category = classifyCategory(title, body)
 
-        // 6. TIMESTAMP FALLBACK
+        // 7. TIMESTAMP
         val now = if (smsTimestampMillis > 0L) Date(smsTimestampMillis) else Date()
 
-        Log.d(TAG, "Parsed OK (amountSource=$amountSource): title='$title', category='$category', amount=$amount")
+        Log.d(TAG, "Parsed OK (amountSource=$amountSource): title='$title', category='$category', amount=$amount, mode=$paymentMode")
 
         return ExpenseEntity(
             category      = category,
@@ -231,9 +291,10 @@ object SmsParser {
             time          = SimpleDateFormat("hh:mm a",     Locale.ENGLISH).format(now),
             contactName   = title,
             contactNumber = sender,
-            icon          = if (isDebit) "\uD83D\uDCB8" else "\uD83D\uDCB0", // 💸 or 💰
+            icon          = iconForCategory(category),
             title         = title,
-            tab           = isDebit,
+            tab           = true,
+            paymentMode   = paymentMode,
         )
     }
 
@@ -250,38 +311,16 @@ object SmsParser {
         return null
     }
 
-    /**
-     * Categorizes the SMS into a specific bucket.
-     * GUARANTEED: Always returns a valid category string; never returns null or empty.
-     */
-    private fun classifyCategory(title: String, body: String, isDebit: Boolean): String {
-        val lowerBody = body.lowercase()
-
-        // Income / Credit categorization
-        if (!isDebit) {
-            return when {
-                lowerBody.contains("salary")   -> "Salary"
-                lowerBody.contains("refund")   -> "Refund"
-                lowerBody.contains("cashback") -> "Cashback"
-                else                           -> "Income" // Default fallback for incoming money
-            }
-        }
-
-        // Expense / Debit categorization by merchant keywords
+    /** Always returns a non-empty category (debits only). */
+    private fun classifyCategory(title: String, body: String): String {
         val haystack = "$title $body".lowercase()
         for ((category, keywords) in categoryKeywords) {
-            if (keywords.any { haystack.contains(it) }) {
-                return category
-            }
+            if (keywords.any { haystack.contains(it) }) return category
         }
 
-        // Fallback 1: Bank transfer payment rails (UPI, IMPS, NEFT, RTGS)
-        val isTransferRail = listOf("upi", "imps", "neft", "rtgs").any { lowerBody.contains(it) }
-        if (isTransferRail) {
-            return "Transfer"
-        }
+        val lowerBody = body.lowercase()
+        if (listOf("upi", "imps", "neft", "rtgs").any { lowerBody.contains(it) }) return "Transfer"
 
-        // Fallback 2: General unknown debit expense
         return "Other"
     }
 }

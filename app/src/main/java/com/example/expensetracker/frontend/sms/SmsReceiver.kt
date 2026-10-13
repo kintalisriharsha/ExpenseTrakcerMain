@@ -6,12 +6,15 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Telephony
 import android.telephony.SmsMessage
-import androidx.annotation.RequiresApi
+import com.example.expensetracker.frontend.important.AppPreferences
 
-class SmsReceiver: BroadcastReceiver() {
+class SmsReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
+
+        // Push Notifications switched off in Settings -> don't process SMS at all
+        if (!AppPreferences(context.applicationContext).notificationEnabled) return
 
         val bundle = intent.extras ?: return
         val pdus = bundle.get("pdus") as? Array<*> ?: return
@@ -23,9 +26,9 @@ class SmsReceiver: BroadcastReceiver() {
 
         for (pdu in pdus) {
             val sms = SmsMessage.createFromPdu(pdu as ByteArray, format)
-            sender = sms.originatingAddress          // separate variable, not appended
-            timestampMillis = sms.timestampMillis     // when the carrier actually sent this SMS,
-            fullMessage.append(sms.displayMessageBody) // StringBuilder only reassembles multipart body
+            sender = sms.originatingAddress
+            timestampMillis = sms.timestampMillis
+            fullMessage.append(sms.displayMessageBody)
         }
 
         val serviceIntent = Intent(context, SmsProcessingService::class.java).apply {
@@ -39,7 +42,5 @@ class SmsReceiver: BroadcastReceiver() {
         } else {
             context.startService(serviceIntent)
         }
-
-        println("sender: $sender, body: $fullMessage")
     }
 }
