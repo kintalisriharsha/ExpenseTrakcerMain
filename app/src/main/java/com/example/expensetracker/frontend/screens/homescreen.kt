@@ -117,7 +117,7 @@ object UiScale {
     val expenseCardCorner = 16.dp
     val expenseRowPadding = 18.dp
     val expenseIconBox    = 54.dp
-    val expenseIcon       = 24.dp
+    val expenseIcon       = 36.dp
     val progressRingSize  = 136.dp
     val navIconButton     = 36.dp
     val navIcon           = 26.dp
@@ -126,23 +126,55 @@ object UiScale {
 
 // ─── Category icon mapper ─────────────────────────────────────────────────────
 
-private data class CategoryMeta(
+data class CategoryMeta(
     val icon    : ImageVector,
     val bgLight : Color,
     val bgDark  : Color,
     val tint    : Color
 )
 
-private fun categoryMeta(category: String): CategoryMeta = when (category.lowercase()) {
-    "food"      -> CategoryMeta(Icons.Outlined.Restaurant,      OrangeLight,        OrangeDark,         Orange)
-    "transport" -> CategoryMeta(Icons.Filled.DirectionsCar,     BlueLight,          BlueDark,           Blue)
-    "shopping"  -> CategoryMeta(Icons.Outlined.ShoppingBag,     GreenLight,         GreenDark,          Green)
-    "leisure"   -> CategoryMeta(Icons.Outlined.Movie,           Color(0xFFF3E8FF),  Color(0xFF2D1B4E),  Color(0xFF9333EA))
-    "housing"   -> CategoryMeta(Icons.Outlined.Home,            Color(0xFFDBEAFE),  Color(0xFF1E2A40),  Color(0xFF3B82F6))
-    "health"    -> CategoryMeta(Icons.Outlined.MedicalServices, Color(0xFFFFE4E6),  Color(0xFF3D1A1D),  Color(0xFFE74C3C))
-    "education" -> CategoryMeta(Icons.Outlined.School,          Color(0xFFFEF9C3),  Color(0xFF2D2A0A),  Color(0xFFD4A017))
-    "credit/debit card" -> CategoryMeta(Icons.Filled.CreditCard, Color(0xFFCCFBF1), Color(0xFF0F3D3A),  Color(0xFF0D9488))
-    else        -> CategoryMeta(Icons.Outlined.MoreHoriz,       Color(0xFFF1F5F9),  Color(0xFF1E2230),  Color(0xFF94A3B8))
+private fun categoryMeta(category: String): CategoryMeta = when (category.trim().lowercase()) {
+    "food & dining", "food" ->
+        CategoryMeta(Icons.Outlined.Restaurant, OrangeLight, OrangeDark, Orange)
+
+    "transport" ->
+        CategoryMeta(Icons.Filled.DirectionsCar, BlueLight, BlueDark, Blue)
+
+    "shopping" ->
+        CategoryMeta(Icons.Outlined.ShoppingBag, GreenLight, GreenDark, Green)
+
+    "leisure" ->
+        CategoryMeta(Icons.Outlined.Movie, Color(0xFFF3E8FF), Color(0xFF2D1B4E), Color(0xFF9333EA))
+
+    "housing" ->
+        CategoryMeta(Icons.Outlined.Home, Color(0xFFDBEAFE), Color(0xFF1E2A40), Color(0xFF3B82F6))
+
+    "health" ->
+        CategoryMeta(
+            Icons.Outlined.MedicalServices,
+            Color(0xFFFFE4E6),
+            Color(0xFF3D1A1D),
+            Color(0xFFE74C3C)
+        )
+
+    "education" ->
+        CategoryMeta(Icons.Outlined.School, Color(0xFFFEF9C3), Color(0xFF2D2A0A), Color(0xFFD4A017))
+
+    "credit/debit card" ->
+        CategoryMeta(
+            Icons.Filled.CreditCard,
+            Color(0xFFCCFBF1),
+            Color(0xFF0F3D3A),
+            Color(0xFF0D9488)
+        )
+
+    else ->
+        CategoryMeta(
+            Icons.Outlined.MoreHoriz,
+            Color(0xFFF1F5F9),
+            Color(0xFF1E2230),
+            Color(0xFF94A3B8)
+        )
 }
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
@@ -988,12 +1020,20 @@ private fun ExpenseCard(
                         .background(if (isDark) meta.bgDark else meta.bgLight),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector        = meta.icon,
-                        contentDescription = null,
-                        tint               = meta.tint,
-                        modifier           = Modifier.size(UiScale.expenseIcon)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(UiScale.expenseIconBox)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (isDark) meta.bgDark else meta.bgLight),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector        = meta.icon,
+                            contentDescription = expense.category,
+                            tint               = meta.tint,
+                            modifier           = Modifier.size(UiScale.expenseIcon)
+                        )
+                    }
                 }
                 Column {
                     Row() {

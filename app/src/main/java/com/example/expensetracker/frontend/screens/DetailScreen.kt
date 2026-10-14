@@ -19,11 +19,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.MedicalServices
+import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.Restaurant
+import androidx.compose.material.icons.outlined.School
+import androidx.compose.material.icons.outlined.ShoppingBag
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -58,12 +67,51 @@ import com.example.expensetracker.frontend.components.ToastType
 import com.example.expensetracker.frontend.services.expenseService.ExpenseViewModel
 import com.example.expensetracker.ui.theme.BackgroundDark
 import com.example.expensetracker.ui.theme.BackgroundLight
+import com.example.expensetracker.ui.theme.Blue
+import com.example.expensetracker.ui.theme.BlueDark
+import com.example.expensetracker.ui.theme.BlueLight
 import com.example.expensetracker.ui.theme.BorderDark
 import com.example.expensetracker.ui.theme.BorderLight
+import com.example.expensetracker.ui.theme.Green
+import com.example.expensetracker.ui.theme.GreenDark
+import com.example.expensetracker.ui.theme.GreenLight
+import com.example.expensetracker.ui.theme.Orange
+import com.example.expensetracker.ui.theme.OrangeDark
+import com.example.expensetracker.ui.theme.OrangeLight
 import com.example.expensetracker.ui.theme.Primary
 import com.example.expensetracker.ui.theme.SurfaceDark
 import com.example.expensetracker.ui.theme.SurfaceLight
 import com.example.expensetracker.ui.theme.TextSecondary
+
+private fun categoryMeta(category: String): CategoryMeta = when (category.trim().lowercase()) {
+    "food & dining", "food" ->
+        CategoryMeta(Icons.Outlined.Restaurant, OrangeLight, OrangeDark, Orange)
+
+    "transport" ->
+        CategoryMeta(Icons.Filled.DirectionsCar, BlueLight, BlueDark, Blue)
+
+    "shopping" ->
+        CategoryMeta(Icons.Outlined.ShoppingBag, GreenLight, GreenDark, Green)
+
+    "leisure" ->
+        CategoryMeta(Icons.Outlined.Movie, Color(0xFFF3E8FF), Color(0xFF2D1B4E), Color(0xFF9333EA))
+
+    "housing" ->
+        CategoryMeta(Icons.Outlined.Home, Color(0xFFDBEAFE), Color(0xFF1E2A40), Color(0xFF3B82F6))
+
+    "health" ->
+        CategoryMeta(Icons.Outlined.MedicalServices, Color(0xFFFFE4E6), Color(0xFF3D1A1D), Color(0xFFE74C3C))
+
+    "education" ->
+        CategoryMeta(Icons.Outlined.School, Color(0xFFFEF9C3), Color(0xFF2D2A0A), Color(0xFFD4A017))
+
+    "credit/debit card" ->
+        CategoryMeta(Icons.Filled.CreditCard, Color(0xFFCCFBF1), Color(0xFF0F3D3A), Color(0xFF0D9488))
+
+    else ->
+        CategoryMeta(Icons.Outlined.MoreHoriz, Color(0xFFF1F5F9), Color(0xFF1E2230), Color(0xFF94A3B8))
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionDetailScreen(
@@ -90,12 +138,15 @@ fun TransactionDetailScreen(
     var showDeleteDialog  by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<ToastMessage?>(null) }
 
+    val meta = categoryMeta(expense.category)
+
     LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let {
             toast = ToastMessage(it, ToastType.ERROR)
             expenseViewModel.clearError()
         }
     }
+
 
     if (showDeleteDialog) {
         AlertDialog(
@@ -221,12 +272,12 @@ fun TransactionDetailScreen(
                                 .background(Color(0xFFDEEBFF)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                Icons.Outlined.Restaurant,
-                                null,
-                                tint     = Primary,
-                                modifier = Modifier.size(38.dp)
-                            )
+                                Icon(
+                                    imageVector        = meta.icon,
+                                    contentDescription = expense.category,
+                                    tint               = meta.tint,
+                                    modifier           = Modifier.size(UiScale.expenseIcon)
+                                )
                         }
                         Text(
                             expense.category.uppercase(),
