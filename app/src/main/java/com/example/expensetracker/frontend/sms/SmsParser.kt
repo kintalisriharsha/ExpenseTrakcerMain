@@ -10,37 +10,15 @@ object SmsParser {
 
     private const val TAG = "SmsParser"
 
-    // Primary currency + amount pattern (e.g. "Rs. 50.00", "USD 10", "$500")
+    // Currency + amount pattern (e.g. "Rs. 50.00", "INR 10", "₹500")
     private val amountRegex = Regex(
-        """(?:Rs\.?|INR|USD|\$)\s?([\d,]+(?:\.\d{1,2})?)""",
-        RegexOption.IGNORE_CASE
-    )
-
-    // Amounts preceded by these words are limits/balances/dues, not the transaction itself
-    private val ignoredAmountContextRegex = Regex(
-        """(avl|avail\w*|bal\w*|limit|lmt|outstanding|total\s*due|min\w*\s*due)[^\d]{0,15}$""",
-        RegexOption.IGNORE_CASE
-    )
-
-    // Fallback amount regex anchored to keywords when no currency symbol is present
-    private val amountNearKeywordRegex = Regex(
-        """(?:debited|credited|spent|paid|withdrawn|purchase|payment|charged|received|deposited|refund)\D{0,15}?([\d,]+(?:\.\d{2})?)""" +
-                """|([\d,]+(?:\.\d{2})?)\D{0,15}?(?:debited|credited|spent|paid|withdrawn|purchase|payment|charged|received|deposited|refund)""",
-        RegexOption.IGNORE_CASE
-    )
-
-    private val nonAmountDigitSpanRegex = Regex(
-        """(?:a/?c(?:count)?\.?\s*(?:no\.?)?[:.]?\s*[Xx*]{2,}\d{2,})""" +
-                """|(?:card\s*(?:no\.?|number)?\s*(?:ending)?\s*(?:in|with)?\s*[Xx*]{2,}\d{2,})""" +
-                """|(?:(?:ref(?:erence)?|txn|transaction|utr|rrn)\s*(?:no\.?|id)?[:.]?\s*\d{4,})""" +
-                """|(?:ending\s+(?:in|with)?\s*\d{2,})""" +
-                """|(?:[Xx*]{2,}\d{2,})""",
+        """(?:Rs\.?|INR|₹)\s?([\d,]+(?:\.\d{1,2})?)""",
         RegexOption.IGNORE_CASE
     )
 
     private const val MAX_PLAUSIBLE_AMOUNT = 9_999_999.0
 
-    // Generic bank alert signature for unlisted sender headers
+    // Generic bank alert signature (masked account / card / balance wording)
     private val genericBankAlertRegex = Regex(
         """a/?c\s*(?:no)?[.:]?\s*[Xx*]{2,}\d|avl\s*bal|available\s*bal|acct\s*(?:no)?[.:]?\s*[Xx*]{2,}|card\s+(?:ending|no)\s*[Xx*]{0,}\d""",
         RegexOption.IGNORE_CASE
@@ -56,22 +34,32 @@ object SmsParser {
         RegexOption.IGNORE_CASE
     )
 
-    // Detects spends made with a credit card
-    private val creditCardRegex = Regex(
-        """credit\s*card|\bcr\.?\s*card\b|\bcredit\s*crd\b|\bcc\b|sbi\s*card|SBICRD""",
+    // Promo / reminder / OTP / link messages are never transactions
+    private val promoRegex = Regex(
+        """\botp\b|\boffer\b|cashback|\bwin\b|click|https?:|www\.|bit\.ly""" +
+                """|recharge\s+(?:now|with)|pay\s+now|pay\s+(?:your|bill)|reminder|expir|valid\s+(?:till|until)""" +
+                """|\bapply\b|download|unlimited|congratulations|\bkyc\b|\bplan\b""",
         RegexOption.IGNORE_CASE
     )
 
-    // Clear debit words
-    private val strongDebitKeywords = listOf(
-        "debited", "spent", "paid", "withdrawn", "purchase", "charged"
+    // A real debit sentence: "debited by Rs 500", "Rs 500 debited", "spent Rs 500" ...
+    private val debitSentenceRegex = Regex(
+        """(?:debited|withdrawn|spent|paid|sent|charged)\s*(?:by|for|of|with|from|:)?\s*(?:rs\.?|inr|₹)\s?[\d,]+(?:\.\d{1,2})?""" +
+                """|(?:rs\.?|inr|₹)\s?[\d,]+(?:\.\d{1,2})?\s*(?:has\s+been\s+|is\s+|was\s+)?(?:debited|withdrawn|spent|paid|sent|charged)""",
+        RegexOption.IGNORE_CASE
     )
 
-    // Looser words; only count as debit when the SMS does not look like money coming in
-    private val weakDebitKeywords = listOf("debit", "payment")
+    // Proof it's tied to an actual account / card / transaction
+    private val accountProofRegex = Regex(
+        """a/?c\.?\s*(?:no\.?)?[:.]?\s*[Xx*]+\d{2,}|acct?\s*[Xx*]+\d{2,}""" +
+                """|card\s*(?:no\.?)?\s*(?:ending|[Xx*]+)\s*\d{2,}""" +
+                """|\b(?:upi|imps|neft|rtgs|utr|rrn|ref(?:erence)?|txn)\b""",
+        RegexOption.IGNORE_CASE
+    )
 
-    private val incomingMoneyRegex = Regex(
-        """\bcredited\b|\breceived\b|\bdeposited\b|\brefund""",
+    // Detects spends made with a credit card
+    private val creditCardRegex = Regex(
+        """credit\s*card|\bcr\.?\s*card\b|\bcredit\s*crd\b|\bcc\b|sbi\s*card|SBICRD""",
         RegexOption.IGNORE_CASE
     )
 
@@ -155,7 +143,6 @@ object SmsParser {
     private fun iconForCategory(category: String): String =
         categoryIcons[category] ?: "💸"
 
-
     private val bankPatterns: List<Pair<Regex, String>> = listOf(
         Regex("ICICI", RegexOption.IGNORE_CASE)                         to "ICICI Bank",
         Regex("HDFC", RegexOption.IGNORE_CASE)                          to "HDFC Bank",
@@ -194,94 +181,69 @@ object SmsParser {
         return if (cleaned.isNotBlank()) cleaned else "Bank Alert"
     }
 
-    /** First currency amount that is not an available limit / balance / due figure. */
-    private fun findTransactionAmount(body: String): String? {
-        for (m in amountRegex.findAll(body)) {
-            val before = body.substring(maxOf(0, m.range.first - 25), m.range.first)
-            if (ignoredAmountContextRegex.containsMatchIn(before)) continue
-            return m.groupValues[1].replace(",", "")
-        }
-        return null
+    /** Amount taken only from the matched debit sentence (never a balance / limit). */
+    private fun findDebitAmount(body: String): String? {
+        val sentence = debitSentenceRegex.find(body)?.value ?: return null
+        return amountRegex.find(sentence)?.groupValues?.get(1)?.replace(",", "")
     }
 
     fun parse(sender: String, body: String, smsTimestampMillis: Long = 0L): ExpenseEntity? {
         val normalizedSender = sender.trim()
 
-        // 1. BANK DETECTION
+        // 1. BANK DETECTION - sender header (or a masked account number) must say "bank".
+        //    A bank name merely appearing in the body is NOT enough.
         val bankFromSender = matchedBankName(normalizedSender)
         val bankFromBody = matchedBankName(body)
         val matchesGenericAlert = genericBankAlertRegex.containsMatchIn(body)
-        val isBank = bankFromSender != null || bankFromBody != null || matchesGenericAlert
 
-        if (!isBank) {
-            Log.d(TAG, "Rejected: Not recognized as financial SMS")
+        if (bankFromSender == null && !matchesGenericAlert) {
+            Log.d(TAG, "Rejected: sender is not a bank and no account pattern in body")
             return null
         }
 
-        // Card bill payments / dues / statements are not expenses
-        if (nonTransactionRegex.containsMatchIn(body)) {
-            Log.d(TAG, "Rejected: bill payment / due / statement alert")
+        // 2. REJECT promos, OTPs, reminders, links, bill dues, statements
+        if (promoRegex.containsMatchIn(body) || nonTransactionRegex.containsMatchIn(body)) {
+            Log.d(TAG, "Rejected: promo / reminder / due / statement")
             return null
         }
 
-        // 2. AMOUNT DETECTION & FALLBACK
-        var amountSource = "primary"
-        var amountText = findTransactionAmount(body)
-
-        if (amountText == null) {
-            val sanitizedBody = body.replace(nonAmountDigitSpanRegex, " ")
-            val fallback = amountNearKeywordRegex.find(sanitizedBody)
-            amountText = (fallback?.groupValues?.get(1)?.takeIf { it.isNotEmpty() }
-                ?: fallback?.groupValues?.get(2))
-                ?.replace(",", "")
-            amountSource = "fallback"
-        }
-
-        if (amountText == null) {
-            Log.d(TAG, "Rejected: No valid amount found in SMS")
+        // 3. MUST be a real debit sentence with an amount - no fallback guessing
+        if (!debitSentenceRegex.containsMatchIn(body)) {
+            Log.d(TAG, "Rejected: no real debit sentence")
             return null
         }
 
-        val amount = amountText.toDoubleOrNull()
-        if (amount == null) {
-            Log.d(TAG, "Rejected: Failed to parse amount as Double")
+        // 4. MUST reference an account / card / UPI / ref number
+        if (!accountProofRegex.containsMatchIn(body)) {
+            Log.d(TAG, "Rejected: no account or transaction reference")
             return null
         }
 
-        if (amount > MAX_PLAUSIBLE_AMOUNT) {
-            Log.d(TAG, "Rejected: Amount $amount exceeds plausible transaction ceiling (source=$amountSource)")
+        // 5. AMOUNT
+        val amount = findDebitAmount(body)?.toDoubleOrNull()
+        if (amount == null || amount <= 0.0 || amount > MAX_PLAUSIBLE_AMOUNT) {
+            Log.d(TAG, "Rejected: invalid amount")
             return null
         }
 
-        // 3. DEBIT ONLY - all credits are ignored
-        val lowerBody = body.lowercase()
-        val hasStrongDebit = strongDebitKeywords.any { lowerBody.contains(it) }
-        val hasWeakDebit = weakDebitKeywords.any { lowerBody.contains(it) }
-        val isDebit = hasStrongDebit || (hasWeakDebit && !incomingMoneyRegex.containsMatchIn(body))
-
-        if (!isDebit) {
-            Log.d(TAG, "Rejected: Not a debit transaction")
-            return null
-        }
-
-        // 4. PAYMENT MODE
+        // 6. PAYMENT MODE
         val isCreditCard = creditCardRegex.containsMatchIn(body) ||
                 creditCardRegex.containsMatchIn(normalizedSender)
         val paymentMode = if (isCreditCard) "Credit Card" else "Bank"
 
-        // 5. TITLE / MERCHANT EXTRACTION WITH FALLBACKS
+        // 7. TITLE / MERCHANT EXTRACTION WITH FALLBACKS
         val extractedName = extractTitleFromBody(body)
         val bankName = bankFromSender ?: bankFromBody
         val titleFallback = bankName ?: cleanRawSenderFallback(normalizedSender)
         val title = extractedName ?: titleFallback
 
-        // 6. CATEGORY
+        // 8. CATEGORY
         val category = classifyCategory(title, body)
 
-        // 7. TIMESTAMP
+        // 9. TIMESTAMP
         val now = if (smsTimestampMillis > 0L) Date(smsTimestampMillis) else Date()
 
-        Log.d(TAG, "Parsed OK (amountSource=$amountSource): title='$title', category='$category', amount=$amount, mode=$paymentMode")
+        Log.d(TAG, "Parsed OK: title='$title', category='$category', amount=$amount, mode=$paymentMode")
 
         return ExpenseEntity(
             category      = category,
@@ -301,7 +263,11 @@ object SmsParser {
     private fun extractTitleFromBody(body: String): String? {
         for (pattern in titlePatterns) {
             val match = pattern.find(body)?.groupValues?.get(1)?.trim()
-            if (!match.isNullOrBlank()) {
+            // Skip junk titles like "15-Oct-31 For Rs 500"
+            if (!match.isNullOrBlank() &&
+                !match.any { it.isDigit() } &&
+                !match.contains("rs", ignoreCase = true)
+            ) {
                 return match
                     .replace(Regex("""\s+"""), " ")
                     .split(" ")
