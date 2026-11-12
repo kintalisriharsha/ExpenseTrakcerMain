@@ -19,4 +19,7 @@ interface SettingDao{
 
     @Update
     suspend fun updateSetting(settingsEntity: SettingsEntity)
+
+    @Query("SELECT * FROM settings ORDER BY year DESC, month DESC LIMIT 1")
+    suspend fun getLatestSetting(): SettingsEntity?
 }

@@ -68,16 +68,20 @@ class SettingViewModel(
             try {
                 val existing = settingRepository.getSettings(today.year, today.monthValue).first()
                 if (existing == null) {
-                    val sample = SettingsEntity(
-                        year                 = today.year,
-                        month                = today.monthValue,
-                        monthlyBudget        = 1200.0,
-                        weeklyBudget         = 300.0,
-                        dailyLimit           = 50.0,
-                        notificationEnabled  = true,
-                        isDarkMode           = false
+                    val previous = settingRepository.getLatestSettings()
+                    val newRow = previous?.copy(
+                        year  = today.year,
+                        month = today.monthValue
+                    ) ?: SettingsEntity(          // true first launch only
+                        year                = today.year,
+                        month               = today.monthValue,
+                        monthlyBudget       = 1200.0,
+                        weeklyBudget        = 300.0,
+                        dailyLimit          = 50.0,
+                        notificationEnabled = true,
+                        isDarkMode          = false
                     )
-                    settingRepository.insertSettings(sample)
+                    settingRepository.insertSettings(newRow)
                 }
             } catch (e: Exception) {
                 _errorMessage.value = e.message ?: "Failed to initialize default settings"
@@ -111,6 +115,7 @@ class SettingViewModel(
     fun clearError() {
         _errorMessage.value = null
     }
+
 }
 
 class SettingViewModelFactory(

@@ -6,7 +6,10 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Telephony
 import android.telephony.SmsMessage
-import com.example.expensetracker.frontend.important.AppPreferences
+//import com.example.expensetracker.frontend.important.AppPreferences
+import com.example.expensetracker.frontend.services.important.AppDatabase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 
 class SmsReceiver : BroadcastReceiver() {
 
@@ -14,7 +17,14 @@ class SmsReceiver : BroadcastReceiver() {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
 
         // Push Notifications switched off in Settings -> don't process SMS at all
-        if (!AppPreferences(context.applicationContext).notificationEnabled) return
+
+        val enabled = runBlocking(Dispatchers.IO) {
+            AppDatabase.getInstance(context.applicationContext)
+                .settingDao()
+                .getLatestSetting()
+                ?.notificationEnabled ?: true
+        }
+        if (!enabled) return
 
         val bundle = intent.extras ?: return
         val pdus = bundle.get("pdus") as? Array<*> ?: return

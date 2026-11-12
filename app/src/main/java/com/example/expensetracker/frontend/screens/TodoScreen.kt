@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -51,6 +52,7 @@ import com.example.expensetracker.frontend.services.TodoService.TodoViewModel
 import com.example.expensetracker.ui.theme.*
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
@@ -94,17 +96,29 @@ fun TodoPlanner(
     }
 
     val today = LocalDate.now()
+    val currentMonth = YearMonth.from(today)
 
-    // All todos that fall in the CURRENT month, newest first — replaces the old 7-day week bucketing
+    // Current month: everything, newest first
     val monthTasks = remember(filteredTodos, today) {
         filteredTodos
-            .filter { it.toLocalDate().year == today.year && it.toLocalDate().monthValue == today.monthValue }
+            .filter { YearMonth.from(it.toLocalDate()) == currentMonth }
             .sortedByDescending { it.toLocalDate() }
     }
 
+    // Earlier months: only unfinished todos, grouped per month, latest month first
+    val pastMonthGroups = remember(filteredTodos, today) {
+        filteredTodos
+            .filter { YearMonth.from(it.toLocalDate()).isBefore(currentMonth) && !it.checkBox }
+            .groupBy { YearMonth.from(it.toLocalDate()) }
+            .entries
+            .sortedByDescending { it.key }
+            .map { (ym, list) -> ym to list.sortedByDescending { it.toLocalDate() } }
+    }
+
+    // Overview card stays scoped to the current month
     val totalItems     = monthTasks.size
     val completedItems = monthTasks.count { it.checkBox }
-    val totalValue      = monthTasks.sumOf { it.Amount }
+    val totalValue     = monthTasks.sumOf { it.Amount }
 
     // ── Sheets ──────────────────────────────────────────────────────────────────
     var showAddSheet by remember { mutableStateOf(false) }
@@ -113,8 +127,6 @@ fun TodoPlanner(
     var showEditSheet by remember { mutableStateOf(false) }
     var editingTask   by remember { mutableStateOf<TodoEntity?>(null) }
     val editSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    val monthYear = today.format(DateTimeFormatter.ofPattern("MMMM", LocalLocale.current.platformLocale))
 
     if (showAddSheet) {
         AddTodoBottomSheet(
@@ -194,7 +206,7 @@ fun TodoPlanner(
                         color = textPrimary,
                         maxLines = 1,
                         softWrap = false,
-                        overflow = TextOverflow.Visible // or Ellipsis/Clip
+                        overflow = TextOverflow.Visible
                     )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -229,18 +241,36 @@ fun TodoPlanner(
                     }
                 }
 
-                // ── Single month block, replaces the old Mon → Sun loop ─────────
+                // ── Current month block ─────────────────────────────────────────
                 item {
                     TodoMonthBlock(
-                        monthDate    = today,
-                        tasks        = monthTasks,
-                        isDark       = isDark,
-                        surface      = surface,
-                        textPrimary  = textPrimary,
-                        onAddClick   = { showAddSheet = true },
-                        onToggleDone = { task -> viewModel.toggleDone(task) },
-                        onDelete     = { task -> viewModel.deleteTodo(task); toast = ToastMessage("Todo deleted", ToastType.INFO) },
-                        onEdit       = { task -> editingTask = task; showEditSheet = true }
+                        monthDate      = today,
+                        tasks          = monthTasks,
+                        isCurrentMonth = true,
+                        isDark         = isDark,
+                        surface        = surface,
+                        textPrimary    = textPrimary,
+                        onAddClick     = { showAddSheet = true },
+                        onToggleDone   = { task -> viewModel.toggleDone(task) },
+                        onDelete       = { task -> viewModel.deleteTodo(task); toast = ToastMessage("Todo deleted", ToastType.INFO) },
+                        onEdit         = { task -> editingTask = task; showEditSheet = true }
+                    )
+                    Spacer(Modifier.height(20.dp))
+                }
+
+                // ── Earlier months with unfinished todos ────────────────────────
+                items(pastMonthGroups, key = { it.first.toString() }) { (ym, tasks) ->
+                    TodoMonthBlock(
+                        monthDate      = tasks.first().toLocalDate(),   // newest created date in that month
+                        tasks          = tasks,
+                        isCurrentMonth = false,
+                        isDark         = isDark,
+                        surface        = surface,
+                        textPrimary    = textPrimary,
+                        onAddClick     = null,
+                        onToggleDone   = { task -> viewModel.toggleDone(task) },
+                        onDelete       = { task -> viewModel.deleteTodo(task); toast = ToastMessage("Todo deleted", ToastType.INFO) },
+                        onEdit         = { task -> editingTask = task; showEditSheet = true }
                     )
                     Spacer(Modifier.height(20.dp))
                 }
@@ -257,7 +287,7 @@ fun TodoPlanner(
     }
 }
 
-// ─── Overview card — gradient hero + completion ring, now scoped to the month ──
+// ─── Overview card — gradient hero + completion ring, scoped to the current month ──
 
 @Composable
 fun TodoOverviewCard(
@@ -331,23 +361,25 @@ fun TodoOverviewCard(
     }
 }
 
-// ─── Month block — one circle (today), one + button, flat task list ───────────
+// ─── Month block — used for the current month AND earlier months with pending todos ──
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun TodoMonthBlock(
-    monthDate   : LocalDate,
-    tasks       : List<TodoEntity>,
-    isDark      : Boolean,
-    surface     : Color,
-    textPrimary : Color,
-    onAddClick  : () -> Unit,
-    onToggleDone: (TodoEntity) -> Unit,
-    onDelete    : (TodoEntity) -> Unit,
-    onEdit      : (TodoEntity) -> Unit
+    monthDate     : LocalDate,
+    tasks         : List<TodoEntity>,
+    isCurrentMonth: Boolean = true,
+    isDark        : Boolean,
+    surface       : Color,
+    textPrimary   : Color,
+    onAddClick    : (() -> Unit)?,
+    onToggleDone  : (TodoEntity) -> Unit,
+    onDelete      : (TodoEntity) -> Unit,
+    onEdit        : (TodoEntity) -> Unit
 ) {
-    val monthFormatter    = DateTimeFormatter.ofPattern("MMMM", LocalLocale.current.platformLocale)
-    val shortDayFormatter = DateTimeFormatter.ofPattern("EEE", LocalLocale.current.platformLocale)
+    val locale            = LocalLocale.current.platformLocale
+    val monthFormatter    = DateTimeFormatter.ofPattern(if (isCurrentMonth) "MMMM" else "MMMM yyyy", locale)
+    val shortDayFormatter = DateTimeFormatter.ofPattern("EEE", locale)
 
     val doneCount = tasks.count { it.checkBox }
     val total     = tasks.sumOf { it.Amount }
@@ -355,30 +387,41 @@ fun TodoMonthBlock(
     Column {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // ── single circle: today's date number + weekday abbrev ──
-                Box(Modifier.size(62.dp).clip(CircleShape).background(Primary), Alignment.Center) {
+                // ── circle: day of month always; weekday for current month, year for older months ──
+                Box(
+                    Modifier.size(62.dp).clip(CircleShape)
+                        .background(if (isCurrentMonth) Primary else Primary.copy(alpha = 0.6f)),
+                    Alignment.Center
+                ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(monthDate.dayOfMonth.toString(), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        Text(monthDate.format(shortDayFormatter).uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 0.5.sp)
+                        if (isCurrentMonth) {
+                            Text(monthDate.format(shortDayFormatter).uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 0.5.sp)
+                        } else {
+                            Text(monthDate.year.toString(), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 0.5.sp)
+                        }
                     }
                 }
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text(monthDate.format(monthFormatter), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = textPrimary)
                     Text(
-                        "$doneCount/${tasks.size} done · ₹${"%,.0f".format(total)}",
+                        if (isCurrentMonth) "$doneCount/${tasks.size} done · ₹${"%,.0f".format(total)}"
+                        else "${tasks.size} pending · ₹${"%,.0f".format(total)}",
                         fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primary, letterSpacing = 0.3.sp
                     )
                 }
             }
-            // ── single + button for the whole month ──
-            Box(
-                Modifier.size(46.dp).clip(CircleShape)
-                    .background(if (isDark) Color(0xFF1A2A4A) else Color(0xFFC8CBD9))
-                    .clickable { onAddClick() },
-                Alignment.Center
-            ) {
-                Icon(Icons.Default.Add, "Add todo", tint = Primary, modifier = Modifier.size(20.dp))
+            // ── + button only on the current month ──
+            if (onAddClick != null) {
+                Box(
+                    Modifier.size(46.dp).clip(CircleShape)
+                        .background(if (isDark) Color(0xFF1A2A4A) else Color(0xFFC8CBD9))
+                        .clickable { onAddClick() },
+                    Alignment.Center
+                ) {
+                    Icon(Icons.Default.Add, "Add todo", tint = Primary, modifier = Modifier.size(20.dp))
+                }
             }
         }
 
@@ -402,7 +445,7 @@ fun TodoMonthBlock(
                     }
                 }
             }
-        } else {
+        } else if (isCurrentMonth) {
             Surface(Modifier.fillMaxWidth(), RoundedCornerShape(16.dp), color = surface, shadowElevation = 1.dp, tonalElevation = 0.dp) {
                 Box(Modifier.fillMaxWidth().padding(vertical = 20.dp), Alignment.Center) {
                     Text("No todos yet this month — tap + to add one", fontSize = 14.sp, color = TextSecondary)
@@ -412,7 +455,7 @@ fun TodoMonthBlock(
     }
 }
 
-// ─── Todo row — cart-icon toggle (glows when checked), name (price/quantity), edit/delete ──
+// ─── Todo row — category toggle (glows when checked), name (price/quantity), edit/delete ──
 
 @Composable
 fun TodoRow(
@@ -427,11 +470,6 @@ fun TodoRow(
         targetValue   = if (task.checkBox) Primary else TextSecondary.copy(alpha = 0.35f),
         animationSpec = tween(250),
         label         = "toggleTint"
-    )
-    val glowBg by animateColorAsState(
-        targetValue   = if (task.checkBox) Primary.copy(alpha = 0.16f) else Color.Transparent,
-        animationSpec = tween(250),
-        label         = "glowBg"
     )
 
     Row(
@@ -552,7 +590,7 @@ fun DayOfMonthStepper(day: Int, monthDate: LocalDate, onChange: (Int) -> Unit, i
     }
 }
 
-// ─── Add Todo bottom sheet — no more dayIndex/weekDates, just a day-of-month picker ────
+// ─── Add Todo bottom sheet ────────────────────────────────────────────────────
 
 @RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class)

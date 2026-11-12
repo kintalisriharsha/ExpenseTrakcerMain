@@ -18,4 +18,6 @@ class SettingRepository(
         settingDao.updateSetting(settingsEntity)
     }
 
+    suspend fun getLatestSettings(): SettingsEntity? = settingDao.getLatestSetting()
+
 }

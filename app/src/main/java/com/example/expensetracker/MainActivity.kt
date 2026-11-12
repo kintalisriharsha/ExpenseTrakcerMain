@@ -43,6 +43,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.example.expensetracker.frontend.services.TodoService.TodoViewModelFactory
 import com.example.expensetracker.frontend.services.expenseService.ExpenseViewModelFactory
 import com.example.expensetracker.frontend.services.settingService.SettingViewModelFactory
+import com.example.expensetracker.frontend.services.settingService.SettingsUiState
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -58,7 +59,6 @@ class MainActivity : ComponentActivity() {
         // ── Restore persisted preferences BEFORE setContent ───────────────────
         val appPreferences = AppPreferences(applicationContext)
         isDark                       = appPreferences.isDark
-        Appstate.notificationEnabled = appPreferences.notificationEnabled
 
         // ── Room-backed repositories ──────────────────────────────────────────
         val db = AppDatabase.getInstance(applicationContext)
@@ -85,7 +85,6 @@ class MainActivity : ComponentActivity() {
                 // ── Persist dark mode + notifications on every change ─────────
                 LaunchedEffect(isDark, Appstate.notificationEnabled) {
                     appPreferences.isDark              = isDark
-                    appPreferences.notificationEnabled = Appstate.notificationEnabled
                 }
 
                 // ── Continuation slots used to serialize the cold-start dialogs ────
@@ -101,7 +100,6 @@ class MainActivity : ComponentActivity() {
                 val notificationLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission()
                 ) { granted ->
-                    Appstate.notificationEnabled = granted
                     notificationResult?.resume(Unit)
                     notificationResult = null
                 }
@@ -152,7 +150,6 @@ class MainActivity : ComponentActivity() {
                             context, Manifest.permission.POST_NOTIFICATIONS
                         ) == PackageManager.PERMISSION_GRANTED
 
-                        Appstate.notificationEnabled = hasNotificationPermission
 
                         if (!hasNotificationPermission && !appPreferences.notificationDecisionMade) {
                             appPreferences.notificationDecisionMade = true
@@ -160,7 +157,6 @@ class MainActivity : ComponentActivity() {
                             suspendCancellableCoroutine<Unit> { cont -> notificationResult = cont }
                         }
                     } else {
-                        Appstate.notificationEnabled = true
                         appPreferences.notificationDecisionMade = true
                     }
 
@@ -231,6 +227,13 @@ class MainActivity : ComponentActivity() {
                     // months of total inactivity — not worth it. See
                     // https://developer.android.com/topic/performance/app-hibernation
                     // if this ever needs to come back.
+                }
+
+                val settingsUi by settingViewModel.uiState.collectAsState()
+                LaunchedEffect(settingsUi) {
+                    (settingsUi as? SettingsUiState.Success)?.settings?.let {
+                        Appstate.notificationEnabled = it.notificationEnabled
+                    }
                 }
 
                 // ── Always start at home ───────────────────────────────────────
