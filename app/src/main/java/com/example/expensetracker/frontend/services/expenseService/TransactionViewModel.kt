@@ -115,6 +115,40 @@ class ExpenseViewModel(
         }
     }
 
+    // Adds the same expense on several dates at once (one row per date).
+    fun addExpenses(entities: List<ExpenseEntity>, onComplete: (Int) -> Unit = {}) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val ids = repository.addAll(entities)
+                onComplete(ids.size)
+            } catch (e: Exception) {
+                _errorMessage.value = e.message
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    // Saves edits to one expense and, if extra dates were picked, adds a copy per extra date.
+    fun updateExpenseOnDates(
+        updated: ExpenseEntity,
+        extras: List<ExpenseEntity>,
+        onComplete: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                repository.updateAndAdd(updated, extras)
+                onComplete()
+            } catch (e: Exception) {
+                _errorMessage.value = e.message
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
     fun updateExpense(entity: ExpenseEntity, onComplete: () -> Unit = {}) {
         viewModelScope.launch {
             _isLoading.value = true

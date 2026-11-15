@@ -256,6 +256,7 @@ class MainActivity : ComponentActivity() {
                             isDark = isDark,
                             expenseViewModel = expenseViewModel,
                             todoViewModel = todoViewModel,
+                            settingViewModel = settingViewModel
                         )
                     }
                     composable("add_expense") {

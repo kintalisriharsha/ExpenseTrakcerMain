@@ -22,4 +22,10 @@ interface SettingDao{
 
     @Query("SELECT * FROM settings ORDER BY year DESC, month DESC LIMIT 1")
     suspend fun getLatestSetting(): SettingsEntity?
+
+    // Live version of the Auto Expense / notification switch. Reads the SAME row as
+    // getLatestSetting() (which SmsReceiver uses), so UI and SMS handling can't disagree.
+    // Emits null when there is no settings row yet.
+    @Query("SELECT notification_enabled FROM settings ORDER BY year DESC, month DESC LIMIT 1")
+    fun observeNotificationEnabled(): Flow<Boolean?>
 }

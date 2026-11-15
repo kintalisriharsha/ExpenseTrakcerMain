@@ -27,6 +27,14 @@ class ExpenseRepository(private val dao: ExpenseDao) {
         return newId
     }
 
+    suspend fun addAll(entities: List<ExpenseEntity>): List<Long> {
+        return dao.insertAll(entities)
+    }
+
+    suspend fun updateAndAdd(updated: ExpenseEntity, extras: List<ExpenseEntity>) {
+        dao.updateAndInsertAll(updated, extras)
+    }
+
     suspend fun update(entity: ExpenseEntity) {
         dao.update(entity)
     }

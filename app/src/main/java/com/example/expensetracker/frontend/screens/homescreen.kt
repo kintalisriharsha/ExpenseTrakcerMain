@@ -56,6 +56,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import com.example.expensetracker.frontend.services.important.AppDatabase
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -492,6 +494,12 @@ fun HeaderSection(
     textSecondary : Color,
     navController : NavController,
 ) {
+    // Auto Expense / notification switch, straight from the database (no in-memory copy).
+    val appContext = LocalContext.current.applicationContext
+    val notificationsOn by remember(appContext) {
+        AppDatabase.getInstance(appContext).settingDao().observeNotificationEnabled()
+    }.collectAsState(initial = null)
+
     Row(
         modifier              = Modifier
             .fillMaxWidth()
@@ -527,7 +535,7 @@ fun HeaderSection(
                         modifier           = Modifier.size(30.dp)
                     )
                 }
-                if (Appstate.notificationEnabled) {
+                if (notificationsOn != false) {   // no row yet = on (same default as SmsReceiver)
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)

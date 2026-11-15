@@ -21,7 +21,11 @@ import androidx.navigation.NavController
 import com.example.expensetracker.frontend.components.Contact
 import com.example.expensetracker.frontend.components.ContactSheet
 import com.example.expensetracker.frontend.components.CustomToast
-import com.example.expensetracker.frontend.components.DatePickerModal
+import com.example.expensetracker.frontend.components.MultiDatePickerModal
+import com.example.expensetracker.frontend.components.splitAmountEqually
+import com.example.expensetracker.frontend.components.summarizeDates
+import com.example.expensetracker.frontend.components.toLocalDateOrNull
+import com.example.expensetracker.frontend.components.toStoredDate
 import com.example.expensetracker.frontend.components.ToastMessage
 import com.example.expensetracker.frontend.components.ToastType
 import com.example.expensetracker.frontend.services.expenseService.ExpenseViewModel
@@ -29,6 +33,7 @@ import com.example.expensetracker.services.entity.ExpenseEntity
 import com.example.expensetracker.ui.theme.*
 import java.text.SimpleDateFormat
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.*
@@ -79,8 +84,10 @@ fun EditExpenseScreen(
     } else null
     var selectedCategory by remember { mutableStateOf(expense.category) }
     var notes            by remember { mutableStateOf(expense.notes ?: "") }
-    var selectedDate     by remember { mutableStateOf(expense.date) }
-    var selectedDateMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    // The expense's own date is the starting selection. Picking more dates adds copies.
+    val originalDate = remember(expense.id) { expense.date.toLocalDateOrNull() ?: LocalDate.now() }
+    var selectedDates    by remember { mutableStateOf(setOf(originalDate)) }
+    var savedCount       by remember { mutableStateOf(1) }
     var showDatePicker   by remember { mutableStateOf(false) }
     var showContactSheet by remember { mutableStateOf(false) }
     var selectedContact  by remember {
@@ -165,19 +172,31 @@ fun EditExpenseScreen(
             return
         }
 
-        // Store date as "dd MMM yyyy" (e.g. "13 Sep 2026") — this must match
-        // the format written by AddExpense and parsed by AnalyticsDao's
-        // substr()/CASE date logic. Locale.ENGLISH is forced so the month
-        // abbreviation is always Jan/Feb/.../Dec regardless of device locale.
-        val storedDate = Instant.ofEpochMilli(selectedDateMillis)
-            .atOffset(ZoneOffset.UTC)
-            .toLocalDate()
-            .format(DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH))
+        if (selectedDates.isEmpty()) {
+            toast = ToastMessage("Please select at least one date.", ToastType.ERROR)
+            return
+        }
+
+        // The existing expense keeps its own date if it's still selected; otherwise it
+        // moves to the earliest selected date. Every other selected date gets a copy.
+        // Dates are stored as "dd MMM yyyy" (same format as AddExpense / AnalyticsDao).
+        val sortedDates = selectedDates.sorted()
+        val primaryDate = if (originalDate in selectedDates) originalDate else sortedDates.first()
+        val storedDate  = primaryDate.toStoredDate()
+
+        // The amount is the TOTAL: split equally across all selected dates
+        // (amount / number of dates). With one date this is just the amount.
+        val shares = splitAmountEqually(amountDouble, sortedDates.size)
+        if (shares.any { it <= 0.0 }) {
+            toast = ToastMessage("Amount is too small to split across ${sortedDates.size} dates.", ToastType.ERROR)
+            return
+        }
+        val primaryShare = shares[sortedDates.indexOf(primaryDate)]
 
         // Time isn't editable on this screen (shown read-only on
         // the detail screen instead), so keep it unchanged.
         val updatedExpense = expense.copy(
-            amount        = amountDouble,
+            amount        = primaryShare,
             category      = selectedCategory,
             notes         = notes.ifBlank { null },
             date          = storedDate,
@@ -187,7 +206,14 @@ fun EditExpenseScreen(
             title         = notes.ifBlank { selectedCategory }
         )
 
-        expenseViewModel.updateExpense(updatedExpense) {
+        // Copies for the additional dates (new rows: id = null so Room assigns fresh ids)
+        val extras = sortedDates.mapIndexedNotNull { i, d ->
+            if (d == primaryDate) null
+            else updatedExpense.copy(id = null, date = d.toStoredDate(), amount = shares[i])
+        }
+
+        expenseViewModel.updateExpenseOnDates(updatedExpense, extras) {
+            savedCount = 1 + extras.size
             updatedSuccessfully = true
         }
     }
@@ -201,7 +227,10 @@ fun EditExpenseScreen(
 
     LaunchedEffect(updatedSuccessfully) {
         if (updatedSuccessfully) {
-            toast = ToastMessage("Expense updated successfully!", ToastType.SUCCESS)
+            toast = ToastMessage(
+                if (savedCount > 1) "Expense saved on $savedCount dates!" else "Expense updated successfully!",
+                ToastType.SUCCESS
+            )
             kotlinx.coroutines.delay(1_500)
             navController.navigate("detailScreen") {
                 popUpTo("edit_expense") { inclusive = true }
@@ -210,16 +239,14 @@ fun EditExpenseScreen(
     }
 
     if (showDatePicker) {
-        DatePickerModal(
-            onDateSelected = { date ->
-                selectedDate = date
-                runCatching {
-                    val sdf = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
-                    selectedDateMillis = sdf.parse(date)?.time ?: System.currentTimeMillis()
-                }
+        MultiDatePickerModal(
+            initialDates    = selectedDates,
+            onDatesSelected = { dates ->
+                selectedDates = dates
                 showDatePicker = false
             },
-            onDismiss = { showDatePicker = false }
+            onDismiss = { showDatePicker = false },
+            isDark    = isDark
         )
     }
 
@@ -311,7 +338,7 @@ fun EditExpenseScreen(
                     ShowDetails(
                         notes = notes,
                         onNotesChange = { notes = it },
-                        selectedDate = selectedDate,
+                        selectedDate = summarizeDates(selectedDates),
                         onDateClick = { showDatePicker = true },
                         selectedContact = selectedContact,
                         onContactClick = { showContactSheet = true },
@@ -340,7 +367,11 @@ fun EditExpenseScreen(
                             )
                         } else {
                             Text(
-                                "Save Changes",
+                                if (selectedDates.size > 1 && totalAmount > 0.0) {
+                                    val sh = splitAmountEqually(totalAmount, selectedDates.size)
+                                    val approx = if (sh.distinct().size > 1) "≈ " else ""
+                                    "Save (${selectedDates.size} dates · ${approx}₹${"%.2f".format(sh.first())} each)"
+                                } else "Save Changes",
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White

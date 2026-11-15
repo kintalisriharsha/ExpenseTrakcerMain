@@ -4,6 +4,7 @@ import android.R.attr.maxHeight
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -27,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
@@ -44,12 +46,16 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import android.content.Context
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -75,8 +81,104 @@ import com.example.expensetracker.ui.theme.SurfaceDark
 import com.example.expensetracker.ui.theme.SurfaceLight
 import com.example.expensetracker.ui.theme.TextPrimary
 import com.example.expensetracker.ui.theme.TextSecondary
-import java.text.SimpleDateFormat
+import com.example.expensetracker.frontend.services.settingService.SettingViewModel
+import com.example.expensetracker.frontend.services.settingService.SettingsEntity
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.format.DateTimeFormatter
+import java.time.temporal.TemporalAdjusters
 import java.util.Locale
+
+// ─── Month sections with day / week totals ────────────────────────────────────
+
+// First day of the week. Change to DayOfWeek.SUNDAY if your weeks run Sun–Sat.
+private val WEEK_START = DayOfWeek.MONDAY
+
+// Credit-card spends are kept out of daily/weekly/monthly totals (see ExpenseEntity).
+private const val CREDIT_CARD = "Credit Card"
+
+@RequiresApi(Build.VERSION_CODES.O)
+private data class WeekTotal(
+    val spent: Double,
+    val budgetMonth: YearMonth   // which month's settings row holds the weekly budget
+)
+
+@RequiresApi(Build.VERSION_CODES.O)
+private data class DayGroup(
+    val dateText: String,
+    val items: List<ExpenseEntity>,
+    val dayTotal: Double,
+    val week: WeekTotal?         // set only on the last day of a finished week
+)
+
+@RequiresApi(Build.VERSION_CODES.O)
+private data class MonthSection(
+    val key: String,             // "2026-11" (or "other") – used to remember open/closed
+    val month: YearMonth?,       // null = entries whose date text couldn't be read
+    val title: String,
+    val spent: Double,
+    val days: List<DayGroup>
+)
+
+@RequiresApi(Build.VERSION_CODES.O)
+private fun parseStoredDate(text: String): LocalDate? =
+    runCatching { LocalDate.parse(text, DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH)) }
+        .recoverCatching { LocalDate.parse(text, DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.getDefault())) }
+        .getOrNull()
+
+/**
+ * Groups expenses by month (newest first), then by date. Each day gets its total.
+ * A week summary is attached to the LAST date that has expenses in that week, once
+ * the week is over — so it still shows if nothing was spent on the actual Sunday.
+ */
+@RequiresApi(Build.VERSION_CODES.O)
+private fun buildMonthSections(expenses: List<ExpenseEntity>, today: LocalDate): List<MonthSection> {
+    fun weekStart(d: LocalDate): LocalDate = d.with(TemporalAdjusters.previousOrSame(WEEK_START))
+    fun countable(items: List<ExpenseEntity>) = items.filter { it.paymentMode != CREDIT_CARD }
+
+    val dated = expenses.groupBy { it.date }.map { (text, items) ->
+        Triple(text, items, parseStoredDate(text))
+    }
+
+    val weekTotals = HashMap<LocalDate, Double>()
+    val weekLast   = HashMap<LocalDate, LocalDate>()   // newest date with expenses per week
+
+    dated.forEach { (_, items, date) ->
+        if (date == null) return@forEach
+        val ws = weekStart(date)
+        weekTotals[ws] = (weekTotals[ws] ?: 0.0) + countable(items).sumOf { it.amount }
+        if (weekLast[ws] == null || date.isAfter(weekLast[ws])) weekLast[ws] = date
+    }
+
+    val days: List<Pair<LocalDate?, DayGroup>> = dated
+        .sortedByDescending { it.third ?: LocalDate.MIN }
+        .map { (text, items, date) ->
+            var week: WeekTotal? = null
+            if (date != null) {
+                val ws = weekStart(date)
+                val we = ws.plusDays(6)
+                if (weekLast[ws] == date && !we.isAfter(today)) {
+                    week = WeekTotal(weekTotals[ws] ?: 0.0, YearMonth.from(we))
+                }
+            }
+            date to DayGroup(text, items, countable(items).sumOf { it.amount }, week)
+        }
+
+    val monthTitle = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH)
+    return days
+        .groupBy { (date, _) -> date?.let { YearMonth.from(it) } }
+        .map { (ym, list) ->
+            val groups = list.map { it.second }
+            MonthSection(
+                key   = ym?.toString() ?: "other",
+                month = ym,
+                title = ym?.format(monthTitle) ?: "Other dates",
+                spent = groups.sumOf { it.dayTotal },
+                days  = groups
+            )
+        }
+}
 
 @RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class)
@@ -85,7 +187,8 @@ fun HistoryScreen(
     navController: NavController,
     isDark: Boolean = false,
     expenseViewModel: ExpenseViewModel,
-    todoViewModel: TodoViewModel
+    todoViewModel: TodoViewModel,
+    settingViewModel: SettingViewModel
 ) {
     val background = if (isDark) BackgroundDark else BackgroundLight
     val surface = if (isDark) SurfaceDark else SurfaceLight
@@ -106,6 +209,39 @@ fun HistoryScreen(
     val errorMessage = expenseUiState.errorMessage
 
     var toast by remember { mutableStateOf<ToastMessage?>(null) }
+
+    // Month sections (newest first) with day totals and week summaries
+    val monthSections = remember(expenses) { buildMonthSections(expenses, LocalDate.now()) }
+
+    // Budgets for every month a month header / week summary refers to
+    val neededMonths = remember(monthSections) {
+        (monthSections.mapNotNull { it.month } +
+                monthSections.flatMap { sec -> sec.days.mapNotNull { it.week?.budgetMonth } }).distinct()
+    }
+    var budgets by remember { mutableStateOf<Map<YearMonth, SettingsEntity?>>(emptyMap()) }
+    LaunchedEffect(neededMonths) {
+        budgets = neededMonths.associateWith { settingViewModel.budgetFor(it.year, it.monthValue) }
+    }
+
+    // Collapsible months. `monthOpenOverride` only holds what the user has tapped;
+    // months they haven't touched follow the default (current month + newest month open).
+    // Saved in SharedPreferences so the choices survive leaving the screen and closing the app.
+    val context = LocalContext.current
+    val historyPrefs = remember { context.getSharedPreferences("history_prefs", Context.MODE_PRIVATE) }
+    val monthOpenOverride = remember {
+        mutableStateMapOf<String, Boolean>().apply {
+            historyPrefs.all.forEach { (k, v) ->
+                if (k.startsWith("month_open_") && v is Boolean) put(k.removePrefix("month_open_"), v)
+            }
+        }
+    }
+    val defaultOpenKeys: Set<String> = remember(monthSections) {
+        buildSet {
+            add(YearMonth.now().toString())
+            monthSections.firstOrNull()?.let { add(it.key) }
+        }
+    }
+    fun isMonthOpen(key: String): Boolean = monthOpenOverride[key] ?: (key in defaultOpenKeys)
 
     LaunchedEffect(errorMessage) {
         errorMessage?.let {
@@ -204,28 +340,47 @@ fun HistoryScreen(
                                     .verticalScroll(scrollState)
                                     .padding(bottom = 16.dp)
                             ) {
-                                val grouped = expenses.groupBy { it.date }
-                                val sortedGrouped = grouped.entries.sortedByDescending { (date, _) ->
-                                    runCatching {
-                                        SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).parse(date)?.time ?: 0L
-                                    }.getOrDefault(0L)
-                                }
-                                sortedGrouped.forEach { (date, txList) ->
-                                    SectionHeader(text = date, textSize = 14)
-                                    txList.forEach { expense ->
-                                        ExpenseTransactionRow(
-                                            expense = expense,
-                                            background = background,
-                                            textPrimary = textPrimary,
-                                            textSecondary = textSecondary,
-                                            isDark = isDark,
-                                            onClick = {
-                                                expense.id?.let { id ->
-                                                    expenseViewModel.loadExpenseById(id)
-                                                    navController.navigate("detailScreen")
+                                monthSections.forEach { section ->
+                                    val isOpen = isMonthOpen(section.key)
+                                    MonthHeader(
+                                        title       = section.title,
+                                        spent       = section.spent,
+                                        budget      = section.month?.let { budgets[it]?.monthlyBudget },
+                                        expanded    = isOpen,
+                                        isDark      = isDark,
+                                        textPrimary = textPrimary,
+                                        // read the CURRENT state when tapped, never a captured copy
+                                        onToggle    = {
+                                            val nowOpen = !isMonthOpen(section.key)
+                                            monthOpenOverride[section.key] = nowOpen
+                                            historyPrefs.edit().putBoolean("month_open_${section.key}", nowOpen).apply()
+                                        }
+                                    )
+                                    if (isOpen) {
+                                        Column {
+                                            section.days.forEach { group ->
+                                                DateHeader(
+                                                    group       = group,
+                                                    budgets     = budgets,
+                                                    textPrimary = textPrimary
+                                                )
+                                                group.items.forEach { expense ->
+                                                    ExpenseTransactionRow(
+                                                        expense = expense,
+                                                        background = background,
+                                                        textPrimary = textPrimary,
+                                                        textSecondary = textSecondary,
+                                                        isDark = isDark,
+                                                        onClick = {
+                                                            expense.id?.let { id ->
+                                                                expenseViewModel.loadExpenseById(id)
+                                                                navController.navigate("detailScreen")
+                                                            }
+                                                        }
+                                                    )
                                                 }
                                             }
-                                        )
+                                        }
                                     }
                                 }
 
@@ -473,6 +628,114 @@ private fun ExpenseTransactionRow(
 
         if (isDarkMode) {
             HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+        }
+    }
+}
+
+// ─── Amount helpers ───────────────────────────────────────────────────────────
+/** 1250.0 -> "1250", 1250.5 -> "1250.50" */
+private fun formatAmt(v: Double): String =
+    if (v % 1.0 == 0.0) v.toLong().toString() else "%.2f".format(v)
+
+/** "1250/1300" = spent/budget; just "1250" when no budget is set. */
+private fun spentOfBudget(spent: Double, budget: Double?): String =
+    if (budget != null && budget > 0.0) "${formatAmt(spent)}/${formatAmt(budget)}" else formatAmt(spent)
+
+/** Red when over budget, green when within it, neutral when there is no budget. */
+private fun budgetColor(spent: Double, budget: Double?, neutral: Color): Color = when {
+    budget == null || budget <= 0.0 -> neutral
+    spent > budget                  -> Color(0xFFDC2626)
+    else                            -> Color(0xFF16A34A)
+}
+
+// ─── Month header (tap to collapse / expand): month left, spent/budget right ──
+@Composable
+private fun MonthHeader(
+    title: String,
+    spent: Double,
+    budget: Double?,
+    expanded: Boolean,
+    isDark: Boolean,
+    textPrimary: Color,
+    onToggle: () -> Unit
+) {
+    val rotation by animateFloatAsState(if (expanded) 180f else 0f, label = "month_chevron")
+    val bg = if (isDark) Color(0xFF1A2233) else Color(0xFFEEF1F6)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(bg)
+            .clickable { onToggle() }
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            color = textPrimary,
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp
+        )
+        Spacer(Modifier.width(6.dp))
+        Icon(
+            imageVector = Icons.Default.ExpandMore,
+            contentDescription = if (expanded) "Collapse" else "Expand",
+            tint = TextSecondary,
+            modifier = Modifier
+                .size(22.dp)
+                .rotate(rotation)
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = spentOfBudget(spent, budget),
+            color = budgetColor(spent, budget, textPrimary),
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp
+        )
+    }
+}
+
+// ─── Date header: date on the left, day total (and week spent/budget) on the right
+@RequiresApi(Build.VERSION_CODES.O)
+@Composable
+private fun DateHeader(
+    group: DayGroup,
+    budgets: Map<YearMonth, SettingsEntity?>,
+    textPrimary: Color
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top
+    ) {
+        Text(
+            text = group.dateText.uppercase(),
+            color = Slate,
+            fontWeight = FontWeight.W500,
+            fontSize = 14.sp,
+            modifier = Modifier.padding(top = 1.dp)
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = "₹${formatAmt(group.dayTotal)}",
+                color = textPrimary,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp
+            )
+            // Only on the last day of a finished week
+            group.week?.let { w ->
+                val budget = budgets[w.budgetMonth]?.weeklyBudget
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Week ${spentOfBudget(w.spent, budget)}",
+                    color = budgetColor(w.spent, budget, TextSecondary),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp
+                )
+            }
         }
     }
 }

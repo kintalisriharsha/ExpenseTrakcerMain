@@ -101,7 +101,7 @@ fun Settings(
     var dailyLimit    by remember { mutableStateOf("") }
     var weeklyBudget  by remember { mutableStateOf("") }
     var monthlyBudget by remember { mutableStateOf("") }
-    var notifications by remember { mutableStateOf(Appstate.notificationEnabled) }
+    var notifications by remember { mutableStateOf(true) }   // real value comes from the database below
     var darkMode      by remember { mutableStateOf(Appstate.isDark) }
 
     // Derived progress values (updated when server data loads)
@@ -152,7 +152,6 @@ fun Settings(
         notifications              = resp.notificationEnabled
         darkMode                   = resp.isDarkMode
         Appstate.isDark            = resp.isDarkMode
-        Appstate.notificationEnabled = resp.notificationEnabled
     }
 
     // ── React to ViewModel errors ────────────────────────────────────────────
@@ -594,7 +593,6 @@ fun Settings(
                             enabled = !(isUninitialized && isLoading),
                             onCheckedChange = { newValue ->
                                 notifications = newValue
-                                Appstate.notificationEnabled = newValue
 
                                 // Determine values: if empty (first time), send 0.0
                                 val dl = dailyLimit.toDoubleOrNull() ?: 0.0

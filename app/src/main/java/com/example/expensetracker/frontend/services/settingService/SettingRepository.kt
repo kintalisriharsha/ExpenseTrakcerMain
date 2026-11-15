@@ -20,4 +20,6 @@ class SettingRepository(
 
     suspend fun getLatestSettings(): SettingsEntity? = settingDao.getLatestSetting()
 
+    fun observeNotificationEnabled(): Flow<Boolean?> = settingDao.observeNotificationEnabled()
+
 }

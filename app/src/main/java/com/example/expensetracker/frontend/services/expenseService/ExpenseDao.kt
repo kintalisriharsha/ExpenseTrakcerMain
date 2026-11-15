@@ -6,6 +6,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.example.expensetracker.services.entity.ExpenseEntity
 import kotlinx.coroutines.flow.Flow
@@ -33,8 +34,19 @@ interface ExpenseDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: ExpenseEntity): Long   // returns the generated id
 
+    // Inserts all rows in ONE transaction: either every date is saved or none are.
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(entities: List<ExpenseEntity>): List<Long>
+
     @Update
     suspend fun update(entity: ExpenseEntity)
+
+    // Update one expense and add copies for extra dates in ONE transaction.
+    @Transaction
+    suspend fun updateAndInsertAll(updated: ExpenseEntity, extras: List<ExpenseEntity>) {
+        update(updated)
+        if (extras.isNotEmpty()) insertAll(extras)
+    }
 
     @Delete
     suspend fun delete(entity: ExpenseEntity)

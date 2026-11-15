@@ -6,7 +6,6 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Telephony
 import android.telephony.SmsMessage
-//import com.example.expensetracker.frontend.important.AppPreferences
 import com.example.expensetracker.frontend.services.important.AppDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -16,8 +15,8 @@ class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
 
-        // Push Notifications switched off in Settings -> don't process SMS at all
-
+        // Auto Expense switched off in Settings -> don't process SMS at all.
+        // The database is the ONLY source for this (no preferences / in-memory copy).
         val enabled = runBlocking(Dispatchers.IO) {
             AppDatabase.getInstance(context.applicationContext)
                 .settingDao()

@@ -86,7 +86,10 @@ import androidx.navigation.NavController
 import com.example.expensetracker.frontend.components.BottomNavBar
 import com.example.expensetracker.frontend.components.Contact
 import com.example.expensetracker.frontend.components.ContactSheet
-import com.example.expensetracker.frontend.components.DatePickerModal
+import com.example.expensetracker.frontend.components.MultiDatePickerModal
+import com.example.expensetracker.frontend.components.splitAmountEqually
+import com.example.expensetracker.frontend.components.summarizeDates
+import com.example.expensetracker.frontend.components.toStoredDate
 import com.example.expensetracker.frontend.services.expenseService.ExpenseViewModel
 import com.example.expensetracker.services.entity.ExpenseEntity
 import com.example.expensetracker.ui.theme.BackgroundDark
@@ -101,6 +104,7 @@ import com.example.expensetracker.ui.theme.TextPrimary
 import com.example.expensetracker.ui.theme.TextSecondary
 import java.text.SimpleDateFormat
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Date
@@ -199,11 +203,10 @@ fun AddExpense(
     // deliberate tap on a category chip always overrides and "sticks" afterward.
     var categoryAutoPicked by remember { mutableStateOf(false) }
     var notes            by remember { mutableStateOf("") }
-    var selectedDate by remember {
-        mutableStateOf(SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date()))
-    }
-    var selectedDateMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    // One or many dates (continuous, scattered, or both). Defaults to today.
+    var selectedDates    by remember { mutableStateOf(setOf(LocalDate.now())) }
     var showDatePicker   by remember { mutableStateOf(false) }
+    var addedCount       by remember { mutableStateOf(1) }
     var showContactSheet by remember { mutableStateOf(false) }
     var selectedContact  by remember { mutableStateOf<Contact?>(null) }
 
@@ -216,6 +219,13 @@ fun AddExpense(
     val expressionText = if (previousTerms.isNotEmpty()) {
         (previousTerms + listOfNotNull(currentTerm.ifBlank { null })).joinToString("+")
     } else null
+
+    // Shown on the button when several dates are picked: the total is split equally
+    val splitHint: String = if (selectedDates.size > 1 && totalAmount > 0.0) {
+        val shares = splitAmountEqually(totalAmount, selectedDates.size)
+        val approx = if (shares.distinct().size > 1) "≈ " else ""
+        " · ${approx}₹${"%.2f".format(shares.first())} each"
+    } else ""
 
     // --- Custom keypad handlers -------------------------------------------------
     fun handleDigit(digit: String) {
@@ -269,29 +279,39 @@ fun AddExpense(
             return
         }
 
-        // Format ISO Date (yyyy-MM-dd)
-        val storedDate = Instant.ofEpochMilli(selectedDateMillis)
-            .atOffset(ZoneOffset.UTC)
-            .toLocalDate()
-            .format(DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH))
+        if (selectedDates.isEmpty()) {
+            toast = ToastMessage("Please select at least one date", ToastType.ERROR)
+            return
+        }
 
         // Get the current system time at creation moment (e.g., "14:30")
         val currentTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
-        val newExpense = ExpenseEntity(
-            tab           = true,
-            category      = selectedCategory,
-            amount        = amountDouble,
-            notes         = notes.ifBlank { null },
-            date          = storedDate,
-            time          = currentTime, // Automatically captured creation time
-            contactName   = selectedContact?.name ?: "",
-            contactNumber = selectedContact?.phone ?: "",
-            icon          = selectedCategory,
-            title         = notes.ifBlank { selectedCategory }
-        )
+        // The amount entered is the TOTAL: it is split equally across the selected dates
+        // (amount / number of dates), one row per date. Dates are stored as "dd MMM yyyy".
+        val dates  = selectedDates.sorted()
+        val shares = splitAmountEqually(amountDouble, dates.size)
+        if (shares.any { it <= 0.0 }) {
+            toast = ToastMessage("Amount is too small to split across ${dates.size} dates", ToastType.ERROR)
+            return
+        }
+        val newExpenses = dates.mapIndexed { i, date ->
+            ExpenseEntity(
+                tab           = true,
+                category      = selectedCategory,
+                amount        = shares[i],
+                notes         = notes.ifBlank { null },
+                date          = date.toStoredDate(),
+                time          = currentTime, // Automatically captured creation time
+                contactName   = selectedContact?.name ?: "",
+                contactNumber = selectedContact?.phone ?: "",
+                icon          = selectedCategory,
+                title         = notes.ifBlank { selectedCategory }
+            )
+        }
 
-        expenseViewModel.addExpense(newExpense) {
+        expenseViewModel.addExpenses(newExpenses) { count ->
+            addedCount = count
             addedSuccessfully = true
         }
     }
@@ -318,23 +338,24 @@ fun AddExpense(
 
     LaunchedEffect(addedSuccessfully) {
         if (addedSuccessfully) {
-            toast = ToastMessage("Expense added successfully!", ToastType.SUCCESS)
+            toast = ToastMessage(
+                if (addedCount > 1) "Expense added on $addedCount dates!" else "Expense added successfully!",
+                ToastType.SUCCESS
+            )
             kotlinx.coroutines.delay(1_500)
             navController.navigateUp()
         }
     }
 
     if (showDatePicker) {
-        DatePickerModal(
-            onDateSelected = { date ->
-                selectedDate = date
-                runCatching {
-                    val sdf = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
-                    selectedDateMillis = sdf.parse(date)?.time ?: System.currentTimeMillis()
-                }
+        MultiDatePickerModal(
+            initialDates    = selectedDates,
+            onDatesSelected = { dates ->
+                selectedDates = dates
                 showDatePicker = false
             },
-            onDismiss = { showDatePicker = false }
+            onDismiss = { showDatePicker = false },
+            isDark    = isDark
         )
     }
 
@@ -440,7 +461,7 @@ fun AddExpense(
                     ShowDetails(
                         notes = notes,
                         onNotesChange = { notes = it },
-                        selectedDate = selectedDate,
+                        selectedDate = summarizeDates(selectedDates),
                         onDateClick = { showDatePicker = true },
                         selectedContact = selectedContact,
                         onContactClick = { showContactSheet = true },

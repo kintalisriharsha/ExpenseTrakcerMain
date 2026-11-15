@@ -89,6 +89,19 @@ class SettingViewModel(
         }
     }
 
+    /**
+     * Budget row for a specific month (used by the History screen to compare past
+     * weeks/months against the budget that applied then). Falls back to the latest
+     * saved settings if that month has no row, and to null if there are none at all.
+     */
+    suspend fun budgetFor(year: Int, month: Int): SettingsEntity? =
+        try {
+            settingRepository.getSettings(year, month).first()
+                ?: settingRepository.getLatestSettings()
+        } catch (e: Exception) {
+            null
+        }
+
     fun initSettings(settingsEntity: SettingsEntity) {
         viewModelScope.launch {
             try {
