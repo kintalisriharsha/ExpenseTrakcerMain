@@ -1,6 +1,5 @@
 package com.example.expensetracker.frontend.screens
 
-import android.R.attr.maxHeight
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.RepeatMode
@@ -15,25 +14,32 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -93,10 +99,14 @@ import java.util.Locale
 // ─── Month sections with day / week totals ────────────────────────────────────
 
 // First day of the week. Change to DayOfWeek.SUNDAY if your weeks run Sun–Sat.
+@RequiresApi(Build.VERSION_CODES.O)
 private val WEEK_START = DayOfWeek.MONDAY
 
 // Credit-card spends are kept out of daily/weekly/monthly totals (see ExpenseEntity).
 private const val CREDIT_CARD = "Credit Card"
+
+// Special filter value meaning "show every month". Any other value is a month key like "2026-11".
+private const val ALL_MONTHS = "all"
 
 @RequiresApi(Build.VERSION_CODES.O)
 private data class WeekTotal(
@@ -200,7 +210,12 @@ fun HistoryScreen(
     val tabs = listOf("Expense History", "Todo History")
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    val scrollState = rememberScrollState()
+    val listState = rememberLazyListState()
+
+    // Opens on the current month. Pick another month (or "All history") from the filter icon.
+    val currentMonthKey = remember { YearMonth.now().toString() }
+    var selectedFilter by remember { mutableStateOf(currentMonthKey) }
+    var showFilterMenu by remember { mutableStateOf(false) }
 
     // ─── Refactored Unified UI State ──────────────────────────────────────────
     val expenseUiState by expenseViewModel.uiState.collectAsState()
@@ -213,10 +228,29 @@ fun HistoryScreen(
     // Month sections (newest first) with day totals and week summaries
     val monthSections = remember(expenses) { buildMonthSections(expenses, LocalDate.now()) }
 
+    // Months offered in the filter dropdown (newest first). The current month is always listed.
+    val monthTitleFmt = remember { DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH) }
+    val filterOptions: List<Pair<String, String>> = remember(monthSections) {
+        val list = monthSections.map { it.key to it.title }.toMutableList()
+        if (list.none { it.first == currentMonthKey }) {
+            list.add(0, currentMonthKey to YearMonth.now().format(monthTitleFmt))
+        }
+        list
+    }
+    val selectedTitle = if (selectedFilter == ALL_MONTHS) "All history"
+    else filterOptions.firstOrNull { it.first == selectedFilter }?.second ?: selectedFilter
+    val singleMonth = selectedFilter != ALL_MONTHS
+
+    // Only what is on screen: one month, or everything when "All history" is picked
+    val visibleSections = remember(monthSections, selectedFilter) {
+        if (selectedFilter == ALL_MONTHS) monthSections
+        else monthSections.filter { it.key == selectedFilter }
+    }
+
     // Budgets for every month a month header / week summary refers to
-    val neededMonths = remember(monthSections) {
-        (monthSections.mapNotNull { it.month } +
-                monthSections.flatMap { sec -> sec.days.mapNotNull { it.week?.budgetMonth } }).distinct()
+    val neededMonths = remember(visibleSections) {
+        (visibleSections.mapNotNull { it.month } +
+                visibleSections.flatMap { sec -> sec.days.mapNotNull { it.week?.budgetMonth } }).distinct()
     }
     var budgets by remember { mutableStateOf<Map<YearMonth, SettingsEntity?>>(emptyMap()) }
     LaunchedEffect(neededMonths) {
@@ -241,7 +275,41 @@ fun HistoryScreen(
             monthSections.firstOrNull()?.let { add(it.key) }
         }
     }
+
     fun isMonthOpen(key: String): Boolean = monthOpenOverride[key] ?: (key in defaultOpenKeys)
+
+    LaunchedEffect(selectedFilter, expenses.isNotEmpty()) {
+        val today = LocalDate.now()
+        val currentMonth = YearMonth.from(today)
+
+        // Mirror the LazyColumn's item order to work out the index of the target item
+        var index = if (visibleSections.isEmpty()) 1 else 0   // 1 = the "empty_month" item
+        var target = -1
+
+        outer@ for (section in visibleSections) {
+            val isOpen = singleMonth || isMonthOpen(section.key)
+            val headerIndex = index
+            index += 1                                         // month header
+
+            if (!isOpen) {
+                // Current month is collapsed (only possible in "All history"): land on its header
+                if (section.month == currentMonth) { target = headerIndex; break@outer }
+                continue
+            }
+
+            for ((i, group) in section.days.withIndex()) {
+                val date = parseStoredDate(group.dateText)
+                if (date != null && !date.isAfter(today)) {
+                    // If it's the first day of the month, show the month header too
+                    target = if (i == 0) headerIndex else index
+                    break@outer
+                }
+                index += 1 + group.items.size                  // date header + its expense rows
+            }
+        }
+
+        listState.scrollToItem(if (target >= 0) target else 0)
+    }
 
     LaunchedEffect(errorMessage) {
         errorMessage?.let {
@@ -275,6 +343,60 @@ fun HistoryScreen(
                     }
                 },
                 actions = {
+                    if (selectedTab == 0) {
+                        Box {
+                            IconButton(onClick = { showFilterMenu = true }) {
+                                Icon(Icons.Default.FilterList, "Filter by month", tint = textPrimary, modifier = Modifier.size(30.dp))
+                            }
+                            DropdownMenu(
+                                expanded = showFilterMenu,
+                                onDismissRequest = { showFilterMenu = false },
+                                modifier = Modifier.heightIn(max = 380.dp)
+                            ) {
+                                val choose = { key: String ->
+                                    selectedFilter = key
+                                    showFilterMenu = false
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("This month", fontWeight = FontWeight.SemiBold) },
+                                    onClick = { choose(currentMonthKey) },
+                                    trailingIcon = {
+                                        if (selectedFilter == currentMonthKey) Icon(Icons.Default.Check, null, modifier = Modifier.size(18.dp))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("All history", fontWeight = FontWeight.SemiBold) },
+                                    onClick = { choose(ALL_MONTHS) },
+                                    trailingIcon = {
+                                        if (selectedFilter == ALL_MONTHS) Icon(Icons.Default.Check, null, modifier = Modifier.size(18.dp))
+                                    }
+                                )
+                                HorizontalDivider()
+                                // Months grouped under their year, so 24 months stay easy to scan
+                                var lastYear = ""
+                                filterOptions.forEach { (key, title) ->
+                                    val year = if (key == "other") "Other" else key.take(4)
+                                    if (year != lastYear) {
+                                        lastYear = year
+                                        Text(
+                                            text = year,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextSecondary,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text(title) },
+                                        onClick = { choose(key) },
+                                        trailingIcon = {
+                                            if (selectedFilter == key) Icon(Icons.Default.Check, null, modifier = Modifier.size(18.dp))
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
                     IconButton(onClick = { showSearchDialog = true }) {
                         Icon(Icons.Default.Search, "Search", tint = textPrimary, modifier = Modifier.size(32.dp))
                     }
@@ -286,10 +408,11 @@ fun HistoryScreen(
             BottomNavBar(1, navController, surface, border, textPrimary, isDark)
         }
     ) { paddingValues ->
-        Box(Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .fillMaxSize()
                     .padding(
                         top    = paddingValues.calculateTopPadding() + 8.dp,
                         bottom = paddingValues.calculateBottomPadding()
@@ -335,36 +458,86 @@ fun HistoryScreen(
                         } else if (expenses.isEmpty()) {
                             EmptyHistoryState(isDark = isDark)
                         } else {
-                            Column(
-                                modifier = Modifier
-                                    .verticalScroll(scrollState)
-                                    .padding(bottom = 16.dp)
-                            ) {
-                                monthSections.forEach { section ->
-                                    val isOpen = isMonthOpen(section.key)
-                                    MonthHeader(
-                                        title       = section.title,
-                                        spent       = section.spent,
-                                        budget      = section.month?.let { budgets[it]?.monthlyBudget },
-                                        expanded    = isOpen,
-                                        isDark      = isDark,
-                                        textPrimary = textPrimary,
-                                        // read the CURRENT state when tapped, never a captured copy
-                                        onToggle    = {
-                                            val nowOpen = !isMonthOpen(section.key)
-                                            monthOpenOverride[section.key] = nowOpen
-                                            historyPrefs.edit().putBoolean("month_open_${section.key}", nowOpen).apply()
-                                        }
+                            Column(Modifier.fillMaxSize()) {
+                                // What is currently shown
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Showing: $selectedTitle",
+                                        color = textSecondary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium
                                     )
-                                    if (isOpen) {
-                                        Column {
-                                            section.days.forEach { group ->
-                                                DateHeader(
-                                                    group       = group,
-                                                    budgets     = budgets,
-                                                    textPrimary = textPrimary
+                                    Spacer(Modifier.weight(1f))
+                                    if (selectedFilter != currentMonthKey) {
+                                        Text(
+                                            text = "This month",
+                                            color = Color(0xFF1E40FF),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.clickable { selectedFilter = currentMonthKey }
+                                        )
+                                    }
+                                }
+                                LazyColumn(
+                                    state = listState,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(bottom = 16.dp)
+                                ) {
+                                    if (visibleSections.isEmpty()) {
+                                        item(key = "empty_month") {
+                                            Box(
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 48.dp, horizontal = 24.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "No expenses in $selectedTitle",
+                                                    color = textSecondary,
+                                                    fontSize = 14.sp,
+                                                    textAlign = TextAlign.Center
                                                 )
-                                                group.items.forEach { expense ->
+                                            }
+                                        }
+                                    }
+                                    visibleSections.forEach { section ->
+                                        // A single picked month is always shown open; collapsing only applies to "All history"
+                                        val isOpen = singleMonth || isMonthOpen(section.key)
+                                        item(key = "m_${section.key}") {
+                                            MonthHeader(
+                                                title       = section.title,
+                                                spent       = section.spent,
+                                                budget      = section.month?.let { budgets[it]?.monthlyBudget },
+                                                expanded    = isOpen,
+                                                isDark      = isDark,
+                                                textPrimary = textPrimary,
+                                                onToggle    = {
+                                                    if (!singleMonth) {
+                                                        val nowOpen = !isMonthOpen(section.key)
+                                                        monthOpenOverride[section.key] = nowOpen
+                                                        historyPrefs.edit().putBoolean("month_open_${section.key}", nowOpen).apply()
+                                                    }
+                                                }
+                                            )
+                                        }
+                                        if (isOpen) {
+                                            section.days.forEach { group ->
+                                                item(key = "d_${section.key}_${group.dateText}") {
+                                                    DateHeader(
+                                                        group       = group,
+                                                        budgets     = budgets,
+                                                        textPrimary = textPrimary
+                                                    )
+                                                }
+                                                itemsIndexed(
+                                                    group.items,
+                                                    key = { i, _ -> "e_${section.key}_${group.dateText}_$i" }
+                                                ) { _, expense ->
                                                     ExpenseTransactionRow(
                                                         expense = expense,
                                                         background = background,
@@ -382,35 +555,38 @@ fun HistoryScreen(
                                             }
                                         }
                                     }
-                                }
 
-                                // End-of-list chip
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 24.dp, vertical = 20.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Row(
-                                        verticalAlignment     = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        HorizontalDivider(
-                                            modifier  = Modifier.weight(1f),
-                                            color     = if (isDark) Color(0xFF2A3347) else Color(0xFFE5E7EB),
-                                            thickness = 1.dp
-                                        )
-                                        Text(
-                                            text       = "All ${expenses.size} transactions loaded",
-                                            fontSize   = 12.sp,
-                                            color      = TextSecondary,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                        HorizontalDivider(
-                                            modifier  = Modifier.weight(1f),
-                                            color     = if (isDark) Color(0xFF2A3347) else Color(0xFFE5E7EB),
-                                            thickness = 1.dp
-                                        )
+                                    if (visibleSections.isNotEmpty()) {
+                                        item(key = "footer") {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 24.dp, vertical = 20.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Row(
+                                                    verticalAlignment     = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    HorizontalDivider(
+                                                        modifier  = Modifier.weight(1f),
+                                                        color     = if (isDark) Color(0xFF2A3347) else Color(0xFFE5E7EB),
+                                                        thickness = 1.dp
+                                                    )
+                                                    Text(
+                                                        text       = if (singleMonth) "End of $selectedTitle" else "End of history",
+                                                        fontSize   = 12.sp,
+                                                        color      = TextSecondary,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                    HorizontalDivider(
+                                                        modifier  = Modifier.weight(1f),
+                                                        color     = if (isDark) Color(0xFF2A3347) else Color(0xFFE5E7EB),
+                                                        thickness = 1.dp
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

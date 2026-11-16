@@ -1,6 +1,8 @@
 package com.example.expensetracker.frontend.screens
 
+import android.R.attr.data
 import android.os.Build
+import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -232,6 +234,8 @@ private fun AnalyticsContent(
             dailyBudgetLow  = DEFAULT_DAILY_BUDGET_LOW,
             dailyBudgetHigh = DEFAULT_DAILY_BUDGET_HIGH,
         )
+
+        Log.d("HeatMap", "year=${data.heatmap.year}, month=${data.heatmap.month}, daily=${data.heatmap.daily}")
 
         Spacer(Modifier.height(8.dp))
     }
@@ -608,7 +612,6 @@ fun SpendingHeatmapCard(
     val totalDays   = yearMonth.lengthOfMonth()
     val textPrimary   = if (isDark) Color.White else TextPrimary
     val textSecondary = if (isDark) Color(0xFFADB5C7) else TextSecondary
-
     Card(
         shape     = RoundedCornerShape(16.dp),
         colors    = CardDefaults.cardColors(containerColor = cardBg),

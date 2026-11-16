@@ -152,10 +152,11 @@ class MainActivity : ComponentActivity() {
 
 
                         if (!hasNotificationPermission && !appPreferences.notificationDecisionMade) {
-                            appPreferences.notificationDecisionMade = true
                             notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                             suspendCancellableCoroutine<Unit> { cont -> notificationResult = cont }
+                            appPreferences.notificationDecisionMade = true
                         }
+
                     } else {
                         appPreferences.notificationDecisionMade = true
                     }
